@@ -3,14 +3,21 @@
 
   GET /status reports the same build facts as the prompt banner.
   POST /query submits the request body as Knowledge Machine text to the
-  same engine function the prompt uses. The service holds no knowledge
-  of its own. q in a request body is an expression, not a shutdown.
+  same engine function the prompt uses. The running service holds one
+  knowledge base and one query. A call of handler with no session
+  starts from the vocabulary and does not keep the result. q in a
+  request body is an expression, not a shutdown.
 
   The socket is the JDK HTTP server. The handler function is ordinary
-  Clojure data, so a later step can put another server in front of it."
+  Clojure data, so a later step can put another server in front of it.
+  The JSON body leaves the knowledge base and the query out. Terms are
+  encoded so a cons cell, a symbol, a keyword, and a ratio can travel
+  as JSON."
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
-            [som.km.engine :as engine])
+            [som.km.engine :as engine]
+            [som.km.term :as term]
+            [som.km.utils :as utils])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress])
   (:gen-class))
@@ -21,6 +28,7 @@
 
 (def ^:private error-http-status
   {"empty" 400
+   "read" 400
    "not-ported" 501
    "unsupported-media" 415})
 
@@ -37,6 +45,50 @@
           (throw (ex-info (str "PORT must be a number from 0 through 65535. Was: " text) {}))))
       (catch NumberFormatException _
         (throw (ex-info (str "PORT must be a number from 0 through 65535. Was: " text) {}))))))
+
+(defn- fits-long?
+  "True when an integer is exactly a Java long."
+  [value]
+  (try
+    (== value (long value))
+    (catch IllegalArgumentException _ false)
+    (catch ArithmeticException _ false)))
+
+(defn- encode-term
+  "A JSON value for one Knowledge Machine term.
+
+  Nil is null. A proper list is an array. A dotted cons is an object
+  with cons. A keyword and a symbol are objects. A ratio is an object
+  whose text is n/d. An integer that fits in a long is a number, and a
+  larger integer is its decimal text. A string, a boolean, and a double
+  stay themselves."
+  [value]
+  (cond
+    (nil? value) nil
+    (term/cons? value)
+    (if (term/proper? value)
+      (mapv encode-term (utils/elements value))
+      {:cons [(encode-term (term/car value)) (encode-term (term/cdr value))]})
+    (keyword? value) {:keyword (name value)}
+    (symbol? value) {:symbol (name value)}
+    (ratio? value) {:ratio (str (numerator value) "/" (denominator value))}
+    (integer? value) (if (fits-long? value) (long value) (str value))
+    (string? value) value
+    (boolean? value) value
+    (float? value) (double value)
+    :else (str value)))
+
+(defn client-body
+  "The result a client sees.
+
+  :kb and :query stay on the service. :value and :error-structures are
+  encoded. The other keys are already JSON values."
+  [result]
+  (let [public (dissoc result :kb :query)]
+    (cond-> public
+      (contains? public :value) (update :value encode-term)
+      (contains? public :error-structures)
+      (update :error-structures #(mapv encode-term %)))))
 
 (defn- json-response [status body]
   {:status status
@@ -58,10 +110,23 @@
 (defn- read-body [request]
   (some-> (:body request) slurp))
 
-(defn- query-response [request]
+(defn- evaluate-in
+  "Evaluate one body. A session atom keeps the knowledge base. Without
+  one, the call starts from the vocabulary and is not stored."
+  [text session]
+  (if session
+    (locking session
+      (let [current @session
+            result (engine/evaluate text {:kb (:kb current) :query (:query current)})]
+        (when (:kb result)
+          (swap! session assoc :kb (:kb result) :query (:query result)))
+        result))
+    (engine/evaluate text)))
+
+(defn- query-response [request session]
   (if (plain-text-body? request)
-    (let [result (engine/evaluate (read-body request))]
-      (json-response (http-status result) result))
+    (let [result (evaluate-in (read-body request) session)]
+      (json-response (http-status result) (client-body result)))
     (json-response
      415
      {:ok false
@@ -70,29 +135,34 @@
 
 (defn handler
   "Handle one request map and return a response map.
+
   :request-method is a keyword, :uri is a path, :headers is a lower-case
-  string map, and :body is a stream or nil."
-  [request]
-  (case [(:request-method request) (:uri request)]
-    [:get "/"]
-    (json-response
-     200
-     {:name "som-knowledge-machine"
-      :message "Knowledge Machine service. GET /status reports the build. POST /query takes one expression as plain text."
-      :routes {:status "GET /status"
-               :query "POST /query"}})
+  string map, and :body is a stream or nil. session is an atom holding
+  :kb and :query. Without it, a query starts from the vocabulary and
+  the result is not kept."
+  ([request]
+   (handler request nil))
+  ([request session]
+   (case [(:request-method request) (:uri request)]
+     [:get "/"]
+     (json-response
+      200
+      {:name "som-knowledge-machine"
+       :message "Knowledge Machine service. GET /status reports the build. POST /query takes one expression as plain text and evaluates it."
+       :routes {:status "GET /status"
+                :query "POST /query"}})
 
-    [:get "/status"]
-    (json-response 200 (engine/status))
+     [:get "/status"]
+     (json-response 200 (engine/status))
 
-    [:post "/query"]
-    (query-response request)
+     [:post "/query"]
+     (query-response request session)
 
-    (json-response
-     404
-     {:ok false
-      :error "not-found"
-      :message "No route matches this request."})))
+     (json-response
+      404
+      {:ok false
+       :error "not-found"
+       :message "No route matches this request."}))))
 
 (defn- exchange->request [^HttpExchange exchange]
   {:request-method (-> exchange .getRequestMethod str/lower-case keyword)
@@ -110,9 +180,9 @@
     (with-open [out (.getResponseBody exchange)]
       (.write out bytes))))
 
-(defn- on-exchange [^HttpExchange exchange]
+(defn- on-exchange [^HttpExchange exchange session]
   (try
-    (write-exchange exchange (handler (exchange->request exchange)))
+    (write-exchange exchange (handler (exchange->request exchange) session))
     (catch Throwable thrown
       (.printStackTrace thrown)
       (try
@@ -127,14 +197,17 @@
 
 (defn start
   "Start the HTTP service and return the running server.
-  :port defaults to 8080. Port 0 asks the operating system for a free port.
-  The service listens on 127.0.0.1."
+
+  The service keeps one session. :port defaults to 8080. Port 0 asks
+  the operating system for a free port. The service listens on
+  127.0.0.1."
   [{:keys [port] :or {port default-port}}]
-  (let [server (HttpServer/create (InetSocketAddress. listen-host (int port)) 0)]
+  (let [session (atom (engine/session))
+        server (HttpServer/create (InetSocketAddress. listen-host (int port)) 0)]
     (.createContext server "/"
                     (reify HttpHandler
                       (handle [_ exchange]
-                        (on-exchange exchange))))
+                        (on-exchange exchange session))))
     (.start server)
     server))
 

@@ -18,7 +18,7 @@ clojure -M:test
 clojure -M:repl
 ```
 
-The prompt is `KM>`. A line is accepted and is not evaluated yet. `q` leaves the prompt.
+The prompt is `KM>`. A line is read and printed. It is not evaluated yet. `q` leaves the prompt. An unfinished expression continues on the next line.
 
 ## HTTP service
 
@@ -29,7 +29,7 @@ clojure -M:server
 The service listens on `http://127.0.0.1:8080`. Set `PORT` to choose another port.
 
 - `GET /status` returns the build description as JSON.
-- `POST /query` takes one Knowledge Machine expression as a `text/plain` body. Evaluation is not ported yet, so a non-empty expression returns status 501 and a JSON explanation.
+- `POST /query` takes one Knowledge Machine expression as a `text/plain` body. A term returns status 200 and the printed form. The expression is not evaluated. A blank body or a broken expression returns status 400.
 - `GET /` names those two routes.
 
 ## License
