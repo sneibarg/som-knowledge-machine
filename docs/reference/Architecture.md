@@ -10,21 +10,27 @@ The engine is a library. Two adapters sit on it. Each adapter holds the knowledg
 line of text        som.km.repl     som.km.engine/evaluate     printed answer
 HTTP request        som.km.server   som.km.engine/evaluate     JSON answer
                                         som.km.interpreter
-                                   som.km.slotvals  som.km.frame  som.km.stack
+                          som.km.slotvals   som.km.unify   som.km.subsumes   som.km.stack
+                          som.km.prototypes som.km.taxonomy    som.km.frame
                                         som.km.read    som.km.print
-                                              som.km.term
+                                        som.km.errors  som.km.term
 ```
 
 | Namespace | Role |
 | --- | --- |
 | `som.km.engine` | Reads one expression and evaluates it. `reset` rebuilds the built-in vocabulary in a knowledge base the caller passes in. |
 | `som.km.interpreter` | The one dispatcher. The handler table is the Lisp alist, in its original order. `:value` is the answer list. |
-| `som.km.slotvals` | Local slot values, and the six sources a slot value can come from. Only the local store contributes. |
+| `som.km.slotvals` | Local slot values, and the six sources a slot value can come from. A suitable prototype is cloned before the local store, the class rules, and the subslot values. Projection and supersituations contribute nothing. Local and inherited constraints are enforced on the values just read. |
+| `som.km.prototypes` | Builds a prototype and clones its participant graph onto an instance. The interpreter and the slot reader are passed in. This namespace does not require either of them. |
+| `som.km.unify` | Lazy unification and the constraint check. The interpreter is passed in, so the two can call each other. |
+| `som.km.subsumes` | Whether an existing instance matches a description. The store and unification call it through hooks, so this namespace does not require the interpreter. |
+| `som.km.taxonomy` | Subclass links stored on the knowledge base, and the class test unification uses. |
+| `som.km.errors` | Sentences recorded while reasoning. `:on-error` of abort throws with the knowledge base at the error. |
 | `som.km.read` | Turns text into a term. Case is preserved. |
 | `som.km.print` | Turns a term into the text `km-format` would write. |
 | `som.km.term` | Cons cells, symbols, and list shape. The empty list is nil. |
 | `som.km.strings` | `explode`, `concat-list`, and `substitute-string`, used by the printer. |
-| `som.km.explain` | Recognizes and removes comment tags and source markers. The interpreter strips them before dispatch. |
+| `som.km.explain` | Recognizes and removes comment tags and source markers, and builds the KM form a stored explanation prints as. The frame store keeps the records. `(why)`, `(justify)`, and `(get-justification)` print that form. |
 | `som.km.utils` | List, set, and binding helpers. A proper list is walked strictly. |
 | `som.km.kbutils` | Shape tests and `km-equal`. It does not ask whether a name is a class or a slot. |
 | `som.km.frame` | The frame store. A knowledge base is a value the caller passes back in. |
@@ -61,7 +67,7 @@ HTTP status comes from the result: `200` when `:ok` is true, `400` for `empty` a
 | `:warnings` | The warning sentences, in order. |
 | `:text` | Text a command would have printed. Present for the stack inspectors. |
 | `:kb` | The knowledge base to pass on the next call. Absent on a read error. |
-| `:query` | The query to pass on the next call. The fail mode and the object stack live here. |
+| `:query` | The query to pass on the next call. The fail mode, `:on-error`, and the object stack live here. |
 | `:incomplete` | On a read error, true when the text is only a prefix of a term. |
 
 The prompt prints `:text`, when it is present, and then `km-format` of `:value`. Nil prints as `nil`. When `:errors` is not empty, the same line ends with `   ; (WARNING: Errors occurred during reasoning)`. A refusal prints `:message`. A line that reads as the symbol `q` ends the prompt and prints nothing. Evaluating `q` answers the list `(q)`, so the leave test uses the term that was read.
@@ -74,7 +80,7 @@ The service returns the same map as JSON, without `:kb` or `:query`. A proper li
 
 The knowledge base is a value. `som.km.frame/knowledge-base` builds an empty one. The caller passes it into the store functions and uses the value they return. It holds the frames, the order they were first stored, the bindings, the gensym counter, the current situation, the situation and theory names, the situation-facet cache, the deleted names, and the runtime flags. A frame has four facets. A facet holds an ordered list of `(slot (value ...))`. In `*Global` the facet name is the facet. In another situation the name is the facet name joined to the situation name.
 
-`reset` clears the frames and rebuilds the built-in vocabulary in the returned value. The classes, the slots, and the instances `t`, `f`, the fluent statuses, and `*Global` are frames. The default fluent status is `*Fluent`. The optimization flags start clear. A non-fluent slot is stored in `*Global` when the caller leaves the situation out. A prototype is not redirected yet. A theory is not recognized yet.
+`reset` clears the frames and rebuilds the built-in vocabulary in the returned value. The classes, the slots, and the instances `t`, `f`, the fluent statuses, and `*Global` are frames. The default fluent status is `*Fluent`. The optimization flags start clear. A non-fluent slot is stored in `*Global` when the caller leaves the situation out. A fact about a prototype participant is stored in `*Global`. The warning the Lisp records for that redirect is not recorded. A theory is not recognized yet.
 
 The query holds the object stack and the goal stack. A goal is the canonical expression, the situation, the expression that was pushed, the inference number, and the target. A unification is recorded under `|all situations|`. `looping-on?` compares the canonical form after bindings are followed. `&+!` stays distinct from `&`. An `or` between a goal and its repeat is still a loop. `reset` clears both stacks. It keeps the list of instances being unified, the inference counters, and the caller's unstackable-instance list. That list starts as `(t)`.
 
@@ -82,7 +88,7 @@ The query holds the object stack and the goal stack. A goal is the canonical exp
 
 A top-level call clears the goal stack, the instances being unified, both inference counters, the depth, and the looping flag. It leaves the object stack, the fail mode, and a caller's depth limit. It does not turn inverse installation back on. The depth limit starts unset. A query deeper than 400 stops the way a set limit would.
 
-Unification in Knowledge Machine rewrites frames. Those operators are recognized and refused. The knowledge base value is still where that state will live. One caller uses a given value at a time. Dereferencing follows bindings unless the caller turns it off. Ununification stays off. Constraints are stored and answer nil. They are not enforced yet.
+Unification rewrites the caller's knowledge base. `&` and `&!` combine two values and keep the result. `&&` and `&+` merge a pair when the classes stored so far pass the subsumption test. A failed `&&` pair stays in the result. `&?` and `&+?` only test, and the trial is discarded. A lazy result may leave `(_A & _B)` on a slot. The next read of that slot finishes it. A constraint stored with a value is checked on that read. A constraint form by itself still answers nil. `(the Class with ...)` searches instances already stored and records an error when the answer is not one instance. `(the+ Class with ...)` searches and then tries to create, which is still refused. An existential that covers a value already on the slot is not stored again. `(a Cat)` is still refused. A slot read clones a suitable prototype, then uses the local store, rules inherited from classes, and values on subslots. A clone records `(cloned-from ...)`. `(why)` prints the KM form of that record. Situations other than `*Global` are a later step. One caller uses a given value at a time. Dereferencing follows bindings unless the caller turns it off. Ununification stays off. `:on-error` defaults to continue. Abort returns nil and keeps the knowledge base at the error.
 
 ## Dependencies
 

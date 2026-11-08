@@ -76,9 +76,10 @@
   (is (nil? (value "(not t)")))
   (is (= (term "(t)") (value "(numberp (1 + 2))")))
   (is (nil? (value "(numberp t)")))
-  (let [joined (answer "((a == b) and (a Cat))")]
-    (is (= "not-ported" (:error joined)))
-    (is (re-find #"\(a == b\) and \(a Cat\)" (:message joined)))))
+  (let [joined (answer "((Fred == Sue) and (a Cat))")]
+    (is (nil? (:value joined)))
+    (is (not= "not-ported" (:error joined)))
+    (is (some #(re-find #"different objects" %) (:errors joined)))))
 
 (deftest local-assert-and-lookup
   (let [stored (answer "(Fred has (color (red)))")
@@ -92,7 +93,8 @@
         missing (on gone "(the age of Sue)")]
     (is (= (term "(red)") (:value read)))
     (is (= (term "(Triple Pair)") (:value classes)))
-    (is (= "not-ported" (:error every)))
+    (is (= (term "(Cat)") (:value every)))
+    (is (not= "not-ported" (:error every)))
     (is (nil? (:value cat)))
     (is (= (term "(Sue)") (:value asserted)))
     (is (= (term "(30)") (:value age)))

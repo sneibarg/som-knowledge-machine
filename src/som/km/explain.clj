@@ -1,11 +1,16 @@
 (ns som.km.explain
-  "Comment tags and source markers from explain.lisp.
+  "Comment tags, source markers, and the KM form of an explanation.
 
   A user comment is a symbol whose name starts with [ and ends with ].
   It is stored later as (comm [tag] Self). A source is a list whose first
   element is the symbol @. Neither one is a slot value. This namespace
-  recognizes them and strips them. It does not record explanations."
-  (:require [som.km.term :as term]))
+  recognizes them and strips them. It also wraps a value written on a
+  class with its (@ Self class slot) source. build-rule turns a sourced
+  value into (every Class has ...). cloned-from, added-at,
+  projected-from, and every stay as they are. English sentences are a
+  later step. This namespace does not read the frame store."
+  (:require [som.km.term :as term]
+            [som.km.utils :as utils]))
 
 (def ^:private at-symbol (symbol "@"))
 (def ^:private comm-symbol (symbol "comm"))
@@ -223,3 +228,260 @@
     (sourced-pair-collapses? expr) (desource-top-level (term/car expr))
     (term/cons? expr) (remove-when source? expr)
     :else expr))
+
+(def ^:private atomic-vals-only
+  "Slots whose values are stored without a source tag.
+
+  These are the built-in atomic slots. A value on one of them is left
+  as it was written."
+  (set (map symbol
+            ["domain" "range" "cardinality" "arity"
+             "slots-to-opportunistically-evaluate"
+             "locked-instances" "locked-instance-of"
+             "inverse" "inverse2" "inverse3"
+             "inherit-with-overrides" "simple-inherit-with-overrides"
+             "superclasses" "subclasses" "instances" "instance-of"
+             "supersituations" "members" "member-of"
+             "prototypes" "prototypes-of"
+             "prototype-participants" "prototype-participant-of"
+             "clone-built-from" "has-built-clones"
+             "cloned-from" "has-clones"
+             "domain-of" "range-of" "remove-subsumers" "remove-subsumees"
+             "subsituations" "subslots" "superslots" "id"
+             "combine-values-by-appending" "dont-cache-values" "ignore-inverses"
+             "fluent-status" "called" "uniquely-called" "block-projection-for"])))
+
+(def ^:private annotated-constraints
+  (set (map symbol ["must-be-a" "exactly" "at-most" "at-least"])))
+
+(def ^:private constraint-heads
+  (into annotated-constraints
+        (map symbol ["mustnt-be-a" "possible-values" "excluded-values" "<>"
+                     "no-inheritance" "constraint" "set-constraint" "set-filter"
+                     "sometimes"])))
+
+(defn- km-var?
+  [value]
+  (and (term/lisp-symbol? value)
+       (let [name (term/symbol-name value)]
+         (and (pos? (count name)) (= \? (nth name 0))))))
+
+(defn- skipped-constraint?
+  [value]
+  (or (utils/eql? value :incomplete)
+      (and (term/cons? value)
+           (contains? constraint-heads (term/car value))
+           (not (contains? annotated-constraints (term/car value))))))
+
+(defn- contains-source?
+  [expr]
+  (loop [expr expr]
+    (cond
+      (nil? expr) false
+      (not (term/cons? expr)) false
+      (source? (term/car expr)) true
+      :else (recur (term/cdr expr)))))
+
+(defn make-source
+  "The source (@ Self class). This is make-source."
+  [class]
+  (term/km-list at-symbol self-symbol class))
+
+(defn add-to-source
+  "source with item added at the end. This is add-to-source."
+  [source item]
+  (utils/append-lists (term/km-list source (term/km-list item))))
+
+(defn- attach-source
+  "Put source on expr. An atom becomes (expr source). A list gains source
+  as its last element, unless a source is already there."
+  [expr source]
+  (cond
+    (and (term/cons? expr) (contains-source? expr)) (term/km-list expr source)
+    (term/cons? expr) (utils/append-lists (term/km-list expr (term/km-list source)))
+    :else (term/km-list expr source)))
+
+(defn annotate-val
+  "expr with source attached, when the value can carry one.
+
+  A number, a string, or a symbol becomes (value source). A list gains
+  source as its last element. A comment, a quote, a ?variable, :incomplete,
+  and a constraint other than must-be-a, exactly, at-most, or at-least stay
+  as they are. & and && are not split into their components, and an
+  embedded (a ...) is not walked. The evaluator strips the trailing source
+  before it dispatches."
+  [expr source]
+  (cond
+    (or (nil? expr)
+        (comment-tag? expr)
+        (utils/quote? expr)
+        (km-var? expr)
+        (skipped-constraint? expr))
+    expr
+
+    (or (number? expr) (string? expr) (term/lisp-symbol? expr))
+    (attach-source expr source)
+
+    (term/cons? expr) (attach-source expr source)
+    :else expr))
+
+(defn- annotate-vals
+  [vals source]
+  (map-proper #(annotate-val % source) vals))
+
+(defn annotate-slotsvals
+  "slotsvals with a source on every value that can carry one.
+
+  source is (@ Self class). The slot name is added to that source.
+  A comment pair and a built-in atomic slot are left unchanged."
+  [slotsvals source]
+  (loop [slotsvals slotsvals
+         acc []]
+    (cond
+      (nil? slotsvals) (term/build-list acc nil)
+      (not (term/cons? slotsvals))
+      (throw (ex-info "This list is dotted." {:tail slotsvals}))
+      :else
+      (let [pair (term/car slotsvals)
+            slot (when (term/cons? pair) (term/car pair))]
+        (recur (term/cdr slotsvals)
+               (conj acc
+                     (if (or (comment-tag? pair)
+                             (contains? atomic-vals-only slot)
+                             (not (term/cons? pair)))
+                       pair
+                       (term/km-list slot
+                                     (annotate-vals (term/car (term/cdr pair))
+                                                    (add-to-source source slot))))))))))
+
+(defn explanation-type
+  "The head of an explanation. Nil when the explanation is not a list."
+  [explanation]
+  (when (term/cons? explanation) (term/car explanation)))
+
+(defn sources
+  "The source markers among the top elements of expr. This is sources."
+  [expr]
+  (when (term/cons? expr)
+    (loop [expr expr
+           acc []]
+      (cond
+        (nil? expr) (term/build-list acc nil)
+        (not (term/cons? expr))
+        (throw (ex-info "This list is dotted." {:tail expr}))
+        (source? (term/car expr)) (recur (term/cdr expr) (conj acc (term/car expr)))
+        :else (recur (term/cdr expr) acc)))))
+
+(defn source-path
+  "The path a source denotes, after the @ and the instance. This is source-path."
+  [source]
+  (when (term/cons? source) (term/cdr (term/cdr source))))
+
+(defn desource-all-but-top-level
+  "Drop sources nested inside each top element. A source at the top stays.
+
+  (a (b (@ x)) (@ y)) becomes (a b (@ y)). This is
+  desource-all-but-top-level."
+  [expr]
+  (if (term/cons? expr) (map-proper desource expr) expr))
+
+(defn- length-of
+  [expr]
+  (loop [expr expr
+         n 0]
+    (cond
+      (nil? expr) n
+      (term/cons? expr) (recur (term/cdr expr) (inc n))
+      :else n)))
+
+(defn- nth-value
+  [value n]
+  (loop [value value
+         n n]
+    (cond
+      (or (nil? value) (not (term/cons? value))) nil
+      (zero? n) (term/car value)
+      :else (recur (term/cdr value) (dec n)))))
+
+(def ^:private must-be-a-symbol (symbol "must-be-a"))
+(def ^:private a-symbol (symbol "a"))
+(def ^:private every-symbol (symbol "every"))
+(def ^:private has-symbol (symbol "has"))
+(def ^:private with-symbol (symbol "with"))
+(def ^:private location-unknown (symbol "<location unknown>"))
+
+(def ^:private kept-explanation-heads
+  (set (map symbol ["every" "cloned-from" "added-at" "projected-from"])))
+
+(defn- mentions?
+  [expr symbols]
+  (cond
+    (nil? expr) false
+    (term/cons? expr)
+    (or (mentions? (term/car expr) symbols)
+        (mentions? (term/cdr expr) symbols))
+    :else (contains? symbols expr)))
+
+(defn- build-embedded
+  "An (a Class with ...) or (every Class has ...) for one source path."
+  [path expr every-a has-with]
+  (if (nil? path)
+    (if (and (utils/eql? every-a must-be-a-symbol)
+             (term/cons? expr)
+             (utils/eql? (term/car expr) a-symbol))
+      (term/cons-cell must-be-a-symbol (term/cdr expr))
+      expr)
+    (let [class (term/car path)
+          slot0 (nth-value path 1)
+          must? (and (term/pair? slot0)
+                     (utils/eql? (nth-value slot0 1) must-be-a-symbol))
+          slot (if must? (term/car slot0) slot0)
+          nested (build-embedded (term/cdr (term/cdr path))
+                                 expr
+                                 (if must? must-be-a-symbol a-symbol)
+                                 with-symbol)]
+      (term/km-list every-a class has-with (term/km-list slot (term/km-list nested))))))
+
+(defn build-rule
+  "The KM rule one explanation prints as.
+
+  cloned-from, added-at, projected-from, and every are returned as they
+  are. A sourced value becomes (every Class has (slot (value))). A value
+  with no source, or a source path of odd length, becomes
+  (<location unknown> value). ignore-constraints? drops a path that
+  names must-be-a, exactly, at-most, or at-least. The odd-path sentence
+  is left for the caller."
+  [expr & {:keys [ignore-constraints?]}]
+  (cond
+    (and (term/cons? expr) (contains? kept-explanation-heads (term/car expr))) expr
+    :else
+    (let [source (when (term/cons? expr) (term/car (sources expr)))
+          path (source-path source)
+          body (desource expr)]
+      (cond
+        (and ignore-constraints?
+             (mentions? path annotated-constraints))
+        nil
+        (or (nil? path) (odd? (length-of path)))
+        (term/km-list location-unknown body)
+        :else (build-embedded path body every-symbol has-symbol)))))
+
+(defn- desource1
+  [expr]
+  (cond
+    (and (term/cons? expr)
+         (= 3 (length-of expr))
+         (utils/eql? (term/car expr) comm-symbol))
+    (nth-value expr 1)
+    (sourced-pair-collapses? expr) (desource1 (term/car expr))
+    (term/cons? expr) (remove-when source? (map-proper desource1 expr))
+    :else expr))
+
+(defn desource-for-printing
+  "The explanation text the printer shows.
+
+  A (comm [tag] instance) becomes the tag. A sourced pair collapses to
+  its value. Developer mode would keep the raw expression. That mode is
+  off, so the printed form is this one."
+  [expr]
+  (desource1 expr))

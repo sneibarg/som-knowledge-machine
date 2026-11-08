@@ -9,13 +9,17 @@
   (slot (value ...)). In *Global the facet name is the facet. In
   another situation the name is the concatenation curr-situation-facet
   builds, cached on the knowledge base. A non-fluent slot is stored
-  in *Global. A prototype is not redirected yet. A theory is not
+  in *Global. put-vals stores a fact about a prototype participant
+  in *Global. Explanations are stored on the frame, oldest first.
+  In *Global the property is explanation. In another situation the
+  name is explanation joined to the situation name. A theory is not
   recognized yet. reset rebuilds the built-in vocabulary.
 
   The object stack is recorded on the query. Storage does not read it.
   The goal stack is also on the query. reset clears both.
-  valset-subsumes-valset? compares structure. An existential does not
-  cover a different value. A stored expression is left as data."
+  valset-subsumes-valset? compares structure. When *valset-subsumes*
+  holds a function, the store uses that test, so an existential can
+  cover an instance. A stored expression is left as data until then."
   (:refer-clojure :exclude [class?])
   (:require [som.km.explain :as explain]
             [som.km.kbutils :as kb]
@@ -176,7 +180,15 @@
    :situations-mode? false
    :classification-enabled? true
    :prototype-classification-enabled? true
-   :max-padding-instances 0})
+   :max-padding-instances 0
+   :use-prototypes? true
+   :recursive-prototypes? false
+   :eagerly-unify-prototypes? true
+   :record-explanations? true
+   :record-explanations-for-clones? true
+   :add-cloned-from-links? true
+   :propagate-explanations? true
+   :dereference-explanations-during-cloning? true})
 
 (def ^:private are-some-flags
   {:definitions :are-some-definitions?
@@ -219,7 +231,7 @@
          "fluent-status" "called" "uniquely-called" "block-projection-for"]))
 
 (def ^:private built-in-inverses
-  (into {} (map (fn [[left right]] [(symbol left) (symbol right)]))
+  (into {} (map (fn [[left right]] [(km-symbol left) (km-symbol right)]))
         [["inverse" "inverse"] ["inverse2" "inverse2"] ["inverse3" "inverse3"]
          ["instances" "instance-of"] ["instance-of" "instances"]
          ["locked-instance-of" "locked-instances"]
@@ -403,7 +415,7 @@
   The global situation stays the global situation. A built-in non-fluent
   slot is stored there, and so is any slot whose fluent status is
   *Non-Fluent, unless a later step recognizes the situation as a theory.
-  A prototype is not redirected yet. vals is used only for instance-of:
+  vals is used only for instance-of:
   an instance of Situation, Slot, Partition, or Theory is stored in
   *Global once instance-of itself is fluent. put-vals, get-vals, add-val,
   and delete-val call this without vals. add-slotsvals passes vals."
@@ -500,6 +512,89 @@
   [kb]
   (:frame-order kb))
 
+(declare get-slotsvals vals-in)
+
+(defn note-done
+  "Record that slot was computed for frame in situation.
+
+  The pair is stored on the frame. A frame that is not already stored
+  is left alone, so this does not create a partial frame. A repeated
+  pair is stored once. Inheritance and prototypes are both in force,
+  so a computed answer is recorded."
+  [kb frame slot situation]
+  (if-not (and (kb/kb-object? frame) (known-raw? kb frame))
+    kb
+    (let [pair (term/km-list slot situation)
+          done (get-in kb [:frames frame :done])]
+      (if (utils/member? pair done utils/equal?)
+        kb
+        (assoc-in kb [:frames frame :done] (term/cons-cell pair done))))))
+
+(defn already-done?
+  "True when note-done recorded slot for frame in situation."
+  [kb frame slot situation]
+  (and (kb/kb-object? frame)
+       (known-raw? kb frame)
+       (utils/member? (term/km-list slot situation)
+                      (get-in kb [:frames frame :done])
+                      utils/equal?)))
+
+(defn- drop-done-slot
+  [done slot]
+  (loop [done done
+         acc []]
+    (cond
+      (nil? done) (term/build-list acc nil)
+      (not (term/cons? done)) (term/build-list acc nil)
+      (and (term/cons? (term/car done))
+           (utils/eql? (term/car (term/car done)) slot))
+      (recur (term/cdr done) acc)
+      :else (recur (term/cdr done) (conj acc (term/car done))))))
+
+(defn- clear-related-done
+  "Clear the cache on frames named by frame's global slot values.
+
+  A new instance-of can change an answer that was cached on a value."
+  [kb frame]
+  (let [slots (:value (get-slotsvals kb frame
+                                     :situation term/global-situation
+                                     :dereference? false))]
+    (loop [pairs slots
+           kb kb]
+      (cond
+        (nil? pairs) kb
+        (not (term/cons? pairs)) kb
+        :else
+        (recur (term/cdr pairs)
+               (loop [values (vals-in (term/car pairs))
+                      kb kb]
+                 (cond
+                   (nil? values) kb
+                   (not (term/cons? values)) kb
+                   (and (kb/kb-object? (term/car values))
+                        (known-raw? kb (term/car values)))
+                   (recur (term/cdr values)
+                          (update-in kb [:frames (term/car values)] dissoc :done))
+                   :else (recur (term/cdr values) kb))))))))
+
+(defn un-done
+  "Drop cached answers on frame.
+
+  No slot clears every cached slot. A slot clears the pairs for that
+  slot. instance-of also clears every cached slot, and the cache on
+  frames named by the global values of frame. A frame that is not
+  stored is left alone."
+  [kb frame & {:keys [slot]}]
+  (cond
+    (not (and (kb/kb-object? frame) (known-raw? kb frame))) kb
+    (utils/eql? slot (symbol "instance-of"))
+    (clear-related-done (update-in kb [:frames frame] dissoc :done) frame)
+    (nil? slot)
+    (update-in kb [:frames frame] dissoc :done)
+    :else
+    (assoc-in kb [:frames frame :done]
+              (drop-done-slot (get-in kb [:frames frame :done]) slot))))
+
 (defn deleted-frames
   "Frames delete-frame has removed, oldest first."
   [kb]
@@ -526,6 +621,110 @@
   (let [known? (known-raw? kb frame)]
     (cond-> (assoc-in kb [:frames frame] record)
       (not known?) (update :frame-order conj frame))))
+
+(def explanation-facet
+  "The property explanations use in *Global. Another situation joins this name to the situation name."
+  (symbol "explanation"))
+
+(defn- nth-value
+  [value n]
+  (loop [value value
+         n n]
+    (cond
+      (or (nil? value) (not (term/cons? value))) nil
+      (zero? n) (term/car value)
+      :else (recur (term/cdr value) (dec n)))))
+
+(defn explanation-property
+  "The symbol explanations are stored under in situation.
+
+  *Global uses explanation. Another situation joins that name to the
+  situation name, the same way a facet is joined. The joined name is
+  cached, so a later call returns the same symbol."
+  [kb situation]
+  (cond
+    (utils/eql? situation term/global-situation)
+    (result kb explanation-facet empty-query)
+
+    :else
+    (if-let [cached (get-in kb [:facet-cache explanation-facet situation])]
+      (result kb cached empty-query)
+      (let [joined (symbol (str "explanation" (term/symbol-name situation)))]
+        (result (assoc-in kb [:facet-cache explanation-facet situation] joined)
+                joined
+                empty-query)))))
+
+(defn- explanation-vector
+  [record property]
+  (let [stored (get-in record [:explanations property])]
+    (if (vector? stored) stored [])))
+
+(defn explanations
+  "The explanation records on frame in situation, oldest first.
+
+  Each record is (instance slot value explanation). The default
+  situation is *Global. A frame with none answers nil. Another
+  situation is a separate property and is not included here. The Lisp
+  keeps the newest record first."
+  [kb frame & {:keys [situation] :or {situation term/global-situation}}]
+  (let [named (explanation-property kb situation)]
+    (term/build-list (explanation-vector (frame-record (:kb named) frame)
+                                         (:value named))
+                     nil)))
+
+(declare protoinstance?)
+
+(defn record-explanation
+  "Append one explanation record when it is not already stored.
+
+  The record is (instance slot value explanation). A duplicate under
+  equal? is left as it is. The frame's facets and done list stay.
+  A fluent slot uses situation. A non-fluent slot uses *Global. A fact
+  about a prototype participant uses *Global. The Lisp keeps the newest
+  record first. This appends, so the oldest stays first."
+  [kb frame entry & {:keys [situation]}]
+  (let [slot (nth-value entry 1)
+        situation (or situation (current-situation kb))
+        situation (if (and (protoinstance? kb frame)
+                           (not (utils/eql? situation term/global-situation)))
+                    term/global-situation
+                    situation)
+        situation (if (and (some? slot) (kb/kb-object? frame))
+                    (target-situation kb situation frame slot)
+                    situation)
+        named (explanation-property kb situation)
+        kb (:kb named)
+        property (:value named)
+        record (or (frame-record kb frame) {:facets {}})
+        existing (explanation-vector record property)]
+    (if (some #(utils/equal? % entry) existing)
+      kb
+      (store-frame kb frame
+                   (assoc-in record [:explanations property]
+                             (conj existing entry))))))
+
+(defn defined-prototypes
+  "Prototypes registered on class, in the order they were stored.
+
+  Several prototypes of one class stay in that order. The Lisp sorts
+  them most-specific first when the scope is written."
+  [kb class]
+  (term/build-list (or (:defined-prototypes (frame-record kb class)) []) nil))
+
+(defn add-definition
+  "Append one expression to a prototype's cosmetic definition.
+
+  showme and save read this list in a later step. The frame's facets
+  stay."
+  [kb prototype expr]
+  (let [record (or (frame-record kb prototype) {:facets {}})
+        existing (or (:definition record) [])]
+    (store-frame kb prototype (assoc record :definition (conj existing expr)))))
+
+(defn definition
+  "The expressions recorded while a prototype was built, oldest first."
+  [kb prototype]
+  (term/build-list (or (:definition (frame-record kb prototype)) []) nil))
 
 (defn- forget-frame
   [kb frame]
@@ -600,14 +799,17 @@
     (store-frame kb frame (assoc record :facets {}))
     kb))
 
+(declare merge-explanations)
+
 (defn km-bind
   "Bind the dereferenced frame1 to the dereferenced frame2.
 
-  The same object is left unchanged. Otherwise frame1 loses its slot
-  values and keeps its place in the knowledge base when it was already
-  known. A name that was never stored stays unknown: the binding is
-  recorded, and known-frame? stays false. Explanations are not merged.
-  Ununification data is not recorded."
+  The same object is left unchanged. Otherwise the bound-away frame's
+  explanation records are copied onto the survivor, and that frame
+  keeps its own records. It loses its slot values and keeps its place
+  in the knowledge base when it was already known. A name that was
+  never stored stays unknown: the binding is recorded, and known-frame?
+  stays false. Ununification data is not recorded."
   [kb frame1 frame2 & {:keys [query] :or {query empty-query}}]
   (when-not (kb/kb-object? frame1)
     (throw (ex-info "A binding is stored on a knowledge-base object."
@@ -622,10 +824,13 @@
       (utils/eql? left right) (result kb nil query)
 
       :else
-      (result (assoc-in (if (known-raw? kb left) (clear-facets kb left) kb)
-                        [:bindings left] right)
-              right
-              query))))
+      (let [merged (if (kb/kb-object? right)
+                     (merge-explanations kb left right)
+                     kb)
+            cleared (if (known-raw? merged left) (clear-facets merged left) merged)]
+        (result (assoc-in cleared [:bindings left] right)
+                right
+                query)))))
 
 (defn ununify
   "Undo a binding. Ununification stays off, so the knowledge base is unchanged and the result is nil."
@@ -890,8 +1095,8 @@
               suffix (count inverse-suffix)]
           (if (and (> (count label) suffix)
                    (= inverse-suffix (subs label (- (count label) suffix))))
-            (symbol (subs label 0 (- (count label) suffix)))
-            (symbol (str label inverse-suffix)))))))
+            (km-symbol (subs label 0 (- (count label) suffix)))
+            (km-symbol (str label inverse-suffix)))))))
 
 (defn cardinality-of
   "The cardinality of a slot.
@@ -984,6 +1189,10 @@
   definitions, and defaults while the matching flag is false.
   :classification-enabled? and :prototype-classification-enabled?
   start true. :max-padding-instances starts at 0.
+  :use-prototypes? starts true. :recursive-prototypes? starts false.
+  :eagerly-unify-prototypes?, :record-explanations?,
+  :record-explanations-for-clones?, :add-cloned-from-links?, and
+  :propagate-explanations? start true.
   :classes-using-assertions, :visible-theories, and :curr-prototype
   start empty. :situations-mode? starts false."
   [kb]
@@ -1060,6 +1269,36 @@
       (assoc-in [:runtime :classification-enabled?] (boolean on?))
       (assoc-in [:runtime :prototype-classification-enabled?] (boolean on?))))
 
+(defn curr-prototype
+  "The prototype being built, or nil when prototype mode is off."
+  [kb]
+  (:curr-prototype (:runtime kb)))
+
+(defn set-curr-prototype
+  "Enter or leave prototype mode. nil leaves it.
+
+  reset leaves it empty."
+  [kb prototype]
+  (assoc-in kb [:runtime :curr-prototype] prototype))
+
+(defn use-prototypes?
+  "True when a slot read may clone a prototype.
+
+  The flag starts true. It is false while a prototype is being built,
+  and while a prototype lookup is already running. A missing flag is
+  treated as true."
+  [kb]
+  (and (get (:runtime kb) :use-prototypes? true)
+       (nil? (curr-prototype kb))))
+
+(defn set-use-prototypes
+  "Turn prototype cloning on or off for later slot reads.
+
+  false also covers the lookup that is already running. The previous
+  value is what the caller restores."
+  [kb on?]
+  (assoc-in kb [:runtime :use-prototypes?] (boolean on?)))
+
 (defn fluent?
   "True when a slot's values vary by situation.
 
@@ -1107,11 +1346,21 @@
                              term/global-situation false)]
         (some? (:value found)))))
 
-(defn- remove-subsumers-slot?
+(defn remove-subsumers-slot?
+  "True when a more specific class on this slot drops a more general one.
+
+  instance-of, classes, superclasses, and member-type count before a
+  value is stored. A user slot counts when remove-subsumers is stored
+  on it in *Global."
   [kb slot]
   (flag-on-slot? kb slot (symbol "remove-subsumers") remove-subsumer-slots))
 
-(defn- remove-subsumees-slot?
+(defn remove-subsumees-slot?
+  "True when a more general class on this slot drops a more specific one.
+
+  subclasses, prototype-of, domain, and range count before a value is
+  stored. A user slot counts when remove-subsumees is stored on it in
+  *Global."
   [kb slot]
   (flag-on-slot? kb slot (symbol "remove-subsumees") remove-subsumee-slots))
 
@@ -1132,12 +1381,25 @@
   [concept]
   (contains? built-in-instances concept))
 
+(def ^{:dynamic true
+       :doc "The value-list subsumption test the store calls.
+
+  Nil means structural equality. som.km.subsumes installs the real test
+  at load time. The var lives here so the frame store does not require
+  that namespace."}
+  *valset-subsumes*
+  nil)
+
+(defn- store-refused?
+  [state]
+  (= "not-ported" (:error state)))
+
 (defn valset-subsumes-valset?
   "True when every value in newer is structurally equal to a distinct value in older.
 
   An existential does not cover a different value, so (a Dog) does not
   cover _Dog1. Two copies of (a Dog) still match, because they are
-  structurally equal. Step 8 replaces this with subsumption."
+  structurally equal. The store uses *valset-subsumes* when it is set."
   [newer older]
   (loop [newer newer
          older older]
@@ -1194,25 +1456,44 @@
       (kb/constraint-expr? (term/car values)) (recur (term/cdr values))
       :else false)))
 
+(defn- subsumes-valset
+  "Whether newer covers older. :value is true or false.
+
+  A bound *valset-subsumes* receives the state, so a slot read inside
+  the test can update the knowledge base. Nil uses structural equality."
+  [state newer older]
+  (if (fn? *valset-subsumes*)
+    (*valset-subsumes* state newer older)
+    (assoc state :value (valset-subsumes-valset? newer older))))
+
 (defn- some-subsumed?
-  [newer valsets]
-  (loop [valsets valsets]
+  [state newer valsets]
+  (loop [valsets valsets
+         state state]
     (cond
-      (nil? valsets) false
+      (nil? valsets) (assoc state :value false)
       (not (term/cons? valsets)) (dotted! valsets)
-      (valset-subsumes-valset? newer (term/car valsets)) true
-      :else (recur (term/cdr valsets)))))
+      :else
+      (let [hit (subsumes-valset state newer (term/car valsets))]
+        (cond
+          (store-refused? hit) hit
+          (:value hit) hit
+          :else (recur (term/cdr valsets) hit))))))
 
 (defn- drop-subsumed
-  [valsets newer]
+  [state valsets newer]
   (loop [valsets valsets
+         state state
          acc []]
     (cond
-      (nil? valsets) (term/build-list acc nil)
+      (nil? valsets) (assoc state :value (term/build-list acc nil))
       (not (term/cons? valsets)) (dotted! valsets)
-      (valset-subsumes-valset? (term/car valsets) newer)
-      (recur (term/cdr valsets) acc)
-      :else (recur (term/cdr valsets) (conj acc (term/car valsets))))))
+      :else
+      (let [hit (subsumes-valset state (term/car valsets) newer)]
+        (cond
+          (store-refused? hit) hit
+          (:value hit) (recur (term/cdr valsets) hit acc)
+          :else (recur (term/cdr valsets) hit (conj acc (term/car valsets))))))))
 
 (defn- dedup-earlier
   [classes]
@@ -1220,83 +1501,118 @@
 
 (declare put-vals add-val install-inverses install-inverses0)
 
+(defn- joined-vals
+  [state old-values add-values]
+  (kb/valsets-to-&&-exprs
+   (utils/remove-duplicates
+    (utils/append-lists
+     (term/km-list old-values (kb/&&-exprs-to-valsets add-values)))
+    :test utils/equal?
+    :from-end? true)))
+
 (defn- compute-new-vals
-  [kb slot old-values0 add-values combine]
-  (let [old-values (if (single-valued-slot? kb slot)
+  "The values to store, or nil when the slot does not change.
+
+  :value nil still returns the state, because a subsumption check can
+  update the knowledge base and the query. A refusal is returned as it is."
+  [state slot old-values0 add-values combine]
+  (let [kb (:kb state)
+        old-values (if (single-valued-slot? kb slot)
                      (kb/un-andify old-values0)
                      old-values0)
-        extra (absent? add-values old-values utils/equal?)]
+        extra (absent? add-values old-values utils/equal?)
+        unchanged (fn [state values] (assoc state :value values))]
     (cond
       (remove-subsumers-slot? kb slot)
-      (if (some? extra)
-        (dedup-earlier (utils/append-lists (term/km-list old-values extra)))
-        old-values0)
+      (unchanged state
+                 (if (some? extra)
+                   (dedup-earlier (utils/append-lists (term/km-list old-values extra)))
+                   old-values0))
 
       (remove-subsumees-slot? kb slot)
-      (if (some? extra)
-        (dedup-earlier (utils/append-lists (term/km-list old-values extra)))
-        old-values0)
+      (unchanged state
+                 (if (some? extra)
+                   (dedup-earlier (utils/append-lists (term/km-list old-values extra)))
+                   old-values0))
 
       (appending-slot? kb slot)
-      (if (some? extra)
-        (kb/remove-dup-instances (utils/append-lists (term/km-list old-values extra)))
-        old-values0)
+      (unchanged state
+                 (if (some? extra)
+                   (kb/remove-dup-instances (utils/append-lists (term/km-list old-values extra)))
+                   old-values0))
 
       (utils/eql? combine appending)
       (let [joined (kb/remove-dup-instances
                     (utils/append-lists (term/km-list old-values add-values)))]
-        (if (single-valued-slot? kb slot)
-          (kb/val-to-vals (kb/vals-to-&-expr joined))
-          joined))
+        (unchanged state
+                   (if (single-valued-slot? kb slot)
+                     (kb/val-to-vals (kb/vals-to-&-expr joined))
+                     joined)))
 
       (single-valued-slot? kb slot)
-      (cond
-        (nil? (absent? add-values old-values utils/eql?)) nil
-        (valset-subsumes-valset? add-values old-values) nil
-        :else (kb/val-to-vals
-               (kb/vals-to-&-expr
-                (utils/append-lists (term/km-list old-values add-values)))))
+      (if (nil? (absent? add-values old-values utils/eql?))
+        (assoc state :value nil)
+        (let [covered (subsumes-valset state add-values old-values)]
+          (cond
+            (store-refused? covered) covered
+            (:value covered) (assoc covered :value nil)
+            :else (assoc covered :value
+                         (kb/val-to-vals
+                          (kb/vals-to-&-expr
+                           (utils/append-lists (term/km-list old-values add-values))))))))
 
       :else
       (let [valsets (kb/&&-exprs-to-valsets old-values)
-            n (length-of valsets)]
+            n (length-of valsets)
+            attach (fn [state reduced]
+                     (assoc state :value (joined-vals state reduced add-values)))]
         (cond
-          (utils/member? add-values valsets utils/equal?) nil
-          (and (<= n 10) (some-subsumed? add-values valsets)) nil
-          (and (every-constraint? add-values) (term/singleton? valsets))
-          (utils/remove-duplicates
-           (utils/append-lists (term/km-list (term/car valsets) add-values))
-           :test utils/equal?)
+          (utils/member? add-values valsets utils/equal?) (assoc state :value nil)
+          (and (every-constraint? add-values) (term/singleton? valsets) (> n 10))
+          (unchanged state
+                     (utils/remove-duplicates
+                      (utils/append-lists (term/km-list (term/car valsets) add-values))
+                      :test utils/equal?))
+          (> n 10) (attach state valsets)
           :else
-          (let [reduced (if (<= n 10) (drop-subsumed valsets add-values) valsets)]
-            (kb/valsets-to-&&-exprs
-             (utils/remove-duplicates
-              (utils/append-lists
-               (term/km-list reduced (kb/&&-exprs-to-valsets add-values)))
-              :test utils/equal?
-              :from-end? true))))))))
+          (let [covered (some-subsumed? state add-values valsets)]
+            (cond
+              (store-refused? covered) covered
+              (:value covered) (assoc covered :value nil)
+              (and (every-constraint? add-values) (term/singleton? valsets))
+              (assoc covered :value
+                     (utils/remove-duplicates
+                      (utils/append-lists (term/km-list (term/car valsets) add-values))
+                      :test utils/equal?))
+              :else
+              (let [reduced (drop-subsumed covered valsets add-values)]
+                (if (store-refused? reduced)
+                  reduced
+                  (attach reduced (:value reduced)))))))))))
 
 (defn- strip-sources
   "Drop a fully evaluated source or comment from the top of each value.
 
-  The caller has already decided the facet is an own facet and the slot
-  is not prototype-scope. A value that is not fully evaluated after the
-  strip is stored unchanged, tags included."
+  :values is the list to store. :notes is a vector of [stripped original]
+  pairs. The caller records each original as the explanation after the
+  stripped value is stored. A value that is not fully evaluated after
+  the strip is stored unchanged, tags included, and is not a note."
   [values]
   (loop [values values
-         acc []]
+         acc []
+         notes []]
     (cond
-      (nil? values) (term/build-list acc nil)
+      (nil? values) {:values (term/build-list acc nil) :notes notes}
       (not (term/cons? values)) (dotted! values)
       :else
       (let [original (term/car values)
             stripped (explain/desource-decomment-top-level original)
-            kept (if (and (some? stripped)
-                          (kb/fully-evaluated? stripped)
-                          (not (utils/equal? stripped original)))
-                   stripped
-                   original)]
-        (recur (term/cdr values) (conj acc kept))))))
+            record? (and (some? stripped)
+                         (kb/fully-evaluated? stripped)
+                         (not (utils/equal? stripped original)))]
+        (recur (term/cdr values)
+               (conj acc (if record? stripped original))
+               (if record? (conj notes [stripped original]) notes))))))
 
 (defn- write-facet
   [kb frame facet slotsvals]
@@ -1315,16 +1631,380 @@
     (push-all kb query (term/cons-cell frame values))
     query))
 
+(defn protoinstance?
+  "True when frame participates in a prototype.
+
+  The test is a global prototype-participant-of value. Bindings inside
+  that value are not followed. A prototype root participates in itself,
+  so it is a protoinstance."
+  [kb frame]
+  (and (kb/kb-object? frame)
+       (some? (:value (get-vals kb frame (symbol "prototype-participant-of")
+                                :situation term/global-situation
+                                :dereference? false)))))
+
+(defn- description-parents
+  "The class of a (the-class Class with ...) value, plus instance-of classes inside it."
+  [expr]
+  (let [class (when (term/cons? (term/cdr expr)) (term/car (term/cdr expr)))]
+    (when (kb/kb-object? class)
+      (let [after (term/cdr (term/cdr expr))
+            slots (if (and (term/cons? after)
+                           (utils/eql? (symbol "with") (term/car after)))
+                    (term/cdr after)
+                    nil)]
+        (loop [slots slots
+               acc [class]]
+          (cond
+            (or (nil? slots) (not (term/cons? slots))) acc
+            :else
+            (let [pair (term/car slots)
+                  values (when (and (term/pair? pair)
+                                    (utils/eql? (symbol "instance-of") (term/car pair)))
+                           (term/car (term/cdr pair)))]
+              (if (utils/lisp-list? values)
+                (recur (term/cdr slots)
+                       (into acc (filter kb/kb-object? (utils/elements values))))
+                (recur (term/cdr slots) acc)))))))))
+
+(defn- remember-defined-prototype
+  "Append prototype on an existing class frame.
+
+  The class frame is not created here. instance-of and prototype-of
+  install their inverses first, and those inverses create the class.
+  A scope written before that frame exists is not indexed."
+  [kb parent prototype]
+  (let [record (frame-record kb parent)]
+    (if (nil? record)
+      kb
+      (let [existing (or (:defined-prototypes record) [])]
+        (if (some #(utils/eql? % prototype) existing)
+          kb
+          (store-frame kb parent
+                       (assoc record :defined-prototypes (conj existing prototype))))))))
+
+(defn- register-prototype-scope
+  "Point each parent of a prototype-scope value at this prototype.
+
+  A class name is simple and does not mark prototype definitions.
+  A (the-class ...) value does. Parents are appended. The read sorts
+  nothing, so several prototypes of one class stay in storage order.
+  A parent that is not already a frame is skipped, and this write does
+  not create that frame."
+  [kb prototype values]
+  (loop [values values
+         kb kb
+         defined? false]
+    (cond
+      (nil? values)
+      (if defined?
+        (set-are-some kb :prototype-definitions true)
+        kb)
+      (not (term/cons? values)) kb
+      :else
+      (let [value (term/car values)]
+        (cond
+          (kb/kb-object? value)
+          (recur (term/cdr values)
+                 (remember-defined-prototype kb value prototype)
+                 defined?)
+          (kb/the-class? value)
+          (if-let [parents (description-parents value)]
+            (recur (term/cdr values)
+                   (reduce #(remember-defined-prototype %1 %2 prototype) kb parents)
+                   true)
+            (recur (term/cdr values) kb defined?))
+          :else (recur (term/cdr values) kb defined?))))))
+
+(defn explanations-flag
+  "Which explanations are recorded.
+
+  True records every slot. False records none, except a cloned-from or
+  added-at explanation while record-explanations-for-clones is on. A
+  vector of slots records those slots and their inverses. A missing flag
+  records every slot."
+  [kb]
+  (get-in kb [:runtime :record-explanations?] true))
+
+(defn set-record-explanations
+  "Replace the explanation flag. True, false, or a vector of slot names."
+  [kb flag]
+  (assoc-in kb [:runtime :record-explanations?] flag))
+
+(defn explanations-on?
+  "True when ordinary explanations are recorded."
+  [kb]
+  (let [flag (explanations-flag kb)]
+    (not (or (false? flag) (nil? flag)))))
+
+(defn- slot-list?
+  [flag]
+  (or (vector? flag) (term/cons? flag)))
+
+(defn- listed-slot?
+  [flag slot inverse]
+  (let [names (if (term/cons? flag) (utils/elements flag) flag)]
+    (boolean (some #(or (utils/eql? % slot) (utils/eql? % inverse)) names))))
+
+(defn- should-record-expr?
+  [kb expr]
+  (or (explanations-on? kb)
+      (and (get-in kb [:runtime :record-explanations-for-clones?] true)
+           (term/cons? expr)
+           (contains? #{(symbol "cloned-from") (symbol "added-at")}
+                      (term/car expr)))))
+
+(defn- set-of-terms?
+  [expr]
+  (loop [items (term/cdr expr)]
+    (cond
+      (nil? items) true
+      (not (term/cons? items)) false
+      (kb/is-km-term? (explain/desource (term/car items))) (recur (term/cdr items))
+      :else false)))
+
+(defn- projected-from
+  [explanations]
+  (loop [explanations explanations]
+    (cond
+      (nil? explanations) nil
+      (not (term/cons? explanations)) nil
+      :else
+      (let [explanation (term/car explanations)]
+        (if (and (term/cons? explanation)
+                 (utils/eql? (term/car explanation) (symbol "projected-from")))
+          (nth-value explanation 1)
+          (recur (term/cdr explanations)))))))
+
+(defn- drop-projected
+  [explanations]
+  (loop [explanations explanations
+         acc []]
+    (cond
+      (nil? explanations) (term/build-list acc nil)
+      (not (term/cons? explanations)) (term/build-list acc nil)
+      :else
+      (let [explanation (term/car explanations)]
+        (recur (term/cdr explanations)
+               (if (and (term/cons? explanation)
+                        (utils/eql? (term/car explanation) (symbol "projected-from")))
+                 acc
+                 (conj acc explanation)))))))
+
+(defn- matching-explanations
+  [records slot value]
+  (loop [records records
+         acc []]
+    (cond
+      (nil? records) (term/build-list acc nil)
+      (not (term/cons? records)) nil
+      :else
+      (let [record (term/car records)]
+        (recur (term/cdr records)
+               (if (and (utils/eql? (nth-value record 1) slot)
+                        (utils/equal? (nth-value record 2) value))
+                 (conj acc (nth-value record 3))
+                 acc))))))
+
+(defn explanation-records
+  "Every explanation record for instance and slot. This is get-all-explanations.
+
+  Each record is (instance slot value explanation), oldest first. The
+  situation's own records come first, then the records in *Global.
+  A repeated record keeps the earlier copy, in its original position.
+  remove-clone-cycles is not run. slot may be nil, and then the current
+  situation is the one read. An instance that is not a knowledge-base
+  object has no records."
+  [kb instance slot & {:keys [situation]}]
+  (let [instance (if (kb/kb-object? instance) (dereference kb instance) instance)]
+    (if-not (kb/kb-object? instance)
+      {:kb kb :value nil}
+      (let [situation (or situation (current-situation kb))
+            target (if (some? slot)
+                     (target-situation kb situation instance slot)
+                     situation)
+            global-name (explanation-property kb term/global-situation)
+            kb (:kb global-name)
+            global (explanation-vector (frame-record kb instance) (:value global-name))
+            local (if (utils/eql? target term/global-situation)
+                    {:kb kb :records []}
+                    (let [named (explanation-property kb target)
+                          kb-now (:kb named)]
+                      {:kb kb-now
+                       :records (explanation-vector (frame-record kb-now instance)
+                                                    (:value named))}))
+            kb (:kb local)
+            combined (term/build-list (into (vec (:records local)) global) nil)
+            followed (dereference kb combined)]
+        {:kb kb
+         :value (utils/remove-duplicates followed
+                                         :test utils/equal?
+                                         :from-end? true)}))))
+
+(defn- direction-explanations
+  [kb instance slot value situation seen]
+  (let [instance (if (kb/kb-object? instance) (dereference kb instance) instance)
+        value (dereference kb value)
+        found (explanation-records kb instance slot :situation situation)
+        explanations (matching-explanations (:value found) slot value)
+        source (projected-from explanations)]
+    (if (or (nil? source)
+            (utils/eql? source situation)
+            (contains? seen source))
+      {:kb (:kb found)
+       :value (utils/remove-duplicates explanations :test utils/equal?)}
+      (let [kept (drop-projected explanations)
+            deeper (direction-explanations (:kb found) instance slot value source
+                                           (conj seen situation))
+            combined (utils/append-lists
+                      (term/km-list kept (:value deeper)))]
+        {:kb (:kb deeper)
+         :value (utils/remove-duplicates combined :test utils/equal?)}))))
+
+(defn- one-direction
+  [kb instance slot value situation]
+  (let [instance (if (kb/kb-object? instance) (dereference kb instance) instance)
+        value (dereference kb value)
+        found (direction-explanations kb instance slot value situation #{})]
+    (if (nil? (:value found))
+      {:kb (:kb found) :structure nil}
+      {:kb (:kb found)
+       :structure (term/km-list instance slot value (:value found))})))
+
+(defn explanations-for
+  "The explanations for one triple, forward and then inverse.
+
+  This is get-explanations. :value is a list of (instance slot value
+  explanations) structures. A direction with nothing stored is left out.
+  instance-of is read in *Global along with every other slot's global
+  records. The caller passes the situation."
+  [kb instance slot value & {:keys [situation]}]
+  (let [situation (or situation (current-situation kb))
+        forward (one-direction kb instance slot value situation)
+        backward (if (nil? slot)
+                   {:kb (:kb forward) :structure nil}
+                   (one-direction (:kb forward) value (invert-slot (:kb forward) slot)
+                                  instance situation))]
+    {:kb (:kb backward)
+     :value (cond
+              (and (:structure forward) (:structure backward))
+              (term/km-list (:structure forward) (:structure backward))
+              (:structure forward) (term/km-list (:structure forward))
+              (:structure backward) (term/km-list (:structure backward))
+              :else nil)}))
+
+(defn record-explanation-for
+  "Store one explanation for (the slot of instance).
+
+  target is that path. expr is the explanation. A duplicate is left as
+  it is. A :set is not stored. A remove-subsumers or remove-subsumees
+  slot whose value is not actually stored is left unrecorded, unless
+  force? is set. An existential explanation also records the value's
+  instance-of when that class is already stored. :program-error is set
+  when a :set still holds something that is not a term."
+  [kb target val expr & {:keys [situation force?]}]
+  (let [slot (nth-value target 1)
+        instance (nth-value target 3)
+        flag (explanations-flag kb)
+        expr (explain/desource-all-but-top-level expr)]
+    (cond
+      (not (should-record-expr? kb expr)) {:kb kb}
+      (and (slot-list? flag)
+           (not (listed-slot? flag slot (invert-slot kb slot))))
+      {:kb kb}
+      (not (kb/kb-object? instance)) {:kb kb}
+      (and (kb/km-set? expr) (not (set-of-terms? expr)))
+      {:kb kb :program-error true :target target :val val :expr expr}
+      (or (nil? val) (not (term/cons? expr)) (kb/km-set? expr)) {:kb kb}
+      (and (kb/km-triple? val) (nil? (nth-value val 2))) {:kb kb}
+      (and (not force?)
+           (or (remove-subsumers-slot? kb slot) (remove-subsumees-slot? kb slot))
+           (not (utils/member? val
+                               (:value (get-vals kb instance slot
+                                                 :dereference? false)))))
+      {:kb (:kb (get-vals kb instance slot :dereference? false))}
+      :else
+      (let [read (get-vals kb instance slot :dereference? false)
+            entry (term/km-list instance slot val expr)
+            kb (record-explanation (:kb read) instance entry :situation situation)
+            class (when (and (not (utils/eql? slot (symbol "instance-of")))
+                             (kb/kb-object? val)
+                             (kb/existential? expr))
+                    (nth-value (explain/desource expr) 1))
+            classes (when (some? class)
+                      (get-vals kb val (symbol "instance-of")))]
+        (if (and (some? class) (utils/member? class (:value classes)))
+          (record-explanation-for (:kb classes)
+                                  (term/km-list (symbol "the") (symbol "instance-of")
+                                                (symbol "of") val)
+                                  class expr
+                                  :situation situation
+                                  :force? force?)
+          {:kb (or (:kb classes) kb)})))))
+
+(defn- situations-touched
+  [kb]
+  (into [] (concat (:situations kb) (:theories kb))))
+
+(defn merge-explanations
+  "Copy recessive's explanation records onto dominant.
+
+  A record already stored on dominant stays where it is. The recessive
+  frame keeps its records too. The Lisp drops a remove-subsumers record
+  whose triple disappeared. That drop is not done here. The bound frame
+  is left in place."
+  [kb recessive dominant]
+  (if-not (and (kb/kb-object? recessive) (kb/kb-object? dominant))
+    kb
+    (reduce (fn [kb situation]
+              (let [lost (explanation-records kb recessive nil :situation situation)
+                    kept (explanation-records (:kb lost) dominant nil :situation situation)
+                    novel (loop [records (:value lost)
+                                 acc []]
+                            (cond
+                              (nil? records) (term/build-list acc nil)
+                              (not (term/cons? records)) (term/build-list acc nil)
+                              (utils/member? (term/car records) (:value kept) utils/equal?)
+                              (recur (term/cdr records) acc)
+                              :else (recur (term/cdr records)
+                                           (conj acc (term/car records)))))]
+                (loop [records novel
+                       kb (:kb kept)]
+                  (cond
+                    (nil? records) kb
+                    (not (term/cons? records)) kb
+                    :else
+                    (recur (term/cdr records)
+                           (record-explanation kb dominant (term/car records)
+                                               :situation situation))))))
+            kb
+            (situations-touched kb))))
+
+(defn- record-notes
+  "Record each stripped original after its value is already stored."
+  [kb frame slot situation notes]
+  (reduce (fn [kb pair]
+            (let [[val expr] pair]
+              (:kb (record-explanation-for
+                    kb
+                    (term/km-list (symbol "the") slot (symbol "of") frame)
+                    val expr
+                    :situation situation))))
+          kb
+          notes))
+
 (defn put-vals
   "Replace the values of one slot and return the frame.
 
   Nil values remove the slot. An equal replacement leaves the slot as
   it is. Own properties and own definitions drop a fully evaluated
-  source or comment before they are stored. prototype-scope keeps its
-  tags. The explanation those tags would have recorded waits. Inverses
-  are installed for ground values that were not already on the slot.
-  A reserved frame name, or a frame that is not a knowledge-base
-  object, is an error and stores nothing."
+  source or comment before they are stored, and that original value is
+  recorded as the explanation. prototype-scope keeps its tags. Writing
+  prototype-scope registers the frame on each parent. A fact about a
+  prototype participant is stored in *Global. The Lisp warning for that
+  redirect is not recorded. Inverses are installed for ground values
+  that were not already on the slot. A reserved frame name, or a frame
+  that is not a knowledge-base object, is an error and stores nothing."
   [kb frame slot values & {:keys [facet install-inverses? situation query]
                            :or {facet own-properties install-inverses? true
                                 query empty-query}}]
@@ -1341,17 +2021,25 @@
                     {:frame frame :slot slot}))
 
     :else
-    (let [situation (chosen-situation kb situation frame slot)
-          values (if (and (contains? own-facets facet)
-                          (not (utils/eql? slot prototype-scope)))
-                   (strip-sources values)
-                   values)
+    (let [requested (or situation (current-situation kb))
+          situation (if (and (protoinstance? kb frame)
+                             (not (utils/eql? requested term/global-situation)))
+                      term/global-situation
+                      situation)
+          situation (chosen-situation kb situation frame slot)
+          prepared (if (and (contains? own-facets facet)
+                            (not (utils/eql? slot prototype-scope)))
+                     (strip-sources values)
+                     {:values values :notes []})
+          values (:values prepared)
+          notes (:notes prepared)
           query (maybe-active-stack kb query frame values)
           found (raw-slots kb frame facet situation)
           kb (:kb found)
-          old (vals-in (find-slot (:slots found) slot))]
+          old (vals-in (find-slot (:slots found) slot))
+          noted (fn [kb] (record-notes kb frame slot situation notes))]
       (if (utils/equal? values old)
-        (result kb frame query)
+        (result (noted kb) frame query)
         (let [query (if (known-raw? kb frame) query (push-to-obj-stack kb query frame))
               named (curr-situation-facet kb facet situation)
               kb (:kb named)
@@ -1361,13 +2049,17 @@
                       (update-slot slots slot values))
               kb (write-facet kb frame (:value named) slots)
               added (absent? values old utils/eql?)]
-          (if (and install-inverses?
-                   (:installing-inverses? kb)
-                   (contains? own-facets facet)
-                   (some? added))
-            (let [installed (install-inverses kb frame slot added situation query)]
-              (assoc installed :value frame))
-            (result kb frame query)))))))
+          (let [installed (if (and install-inverses?
+                                   (:installing-inverses? kb)
+                                   (contains? own-facets facet)
+                                   (some? added))
+                            (let [linked (install-inverses kb frame slot added situation query)]
+                              (assoc linked :value frame))
+                            (result kb frame query))
+                kb (if (and (utils/eql? slot prototype-scope) (some? values))
+                     (register-prototype-scope (:kb installed) frame values)
+                     (:kb installed))]
+            (assoc installed :kb (noted kb))))))))
 
 (defn- install-inverse-link
   [kb invframe invslot invval situation query install?]
@@ -1851,9 +2543,14 @@
   the combine symbol is overwriting. Inverses are installed for the
   added values on an own facet, not for the combined list. domain and
   range are copied onto the inverse in *Global from the pairs as
-  written. The Lisp discards this return value. :value is the frame."
-  [kb instance slotsvals & {:keys [facet situation combine-values-by bind-self? query]
-                            :or {facet own-properties bind-self? true query empty-query}}]
+  written. The Lisp discards this return value. :value is the frame.
+  A subsumption check can update the knowledge base even when the slot
+  value does not change. :errors, :warnings, and :error-structures come
+  back with that result. A refusal is returned unchanged."
+  [kb instance slotsvals & {:keys [facet situation combine-values-by bind-self? query
+                                   errors warnings error-structures]
+                            :or {facet own-properties bind-self? true query empty-query
+                                 errors [] warnings [] error-structures []}}]
   (when-not (contains? facet-set facet)
     (throw (ex-info "A facet is one of the four frame facets." {:facet facet})))
   (let [query (if (or (not (known-frame? kb instance))
@@ -1862,16 +2559,27 @@
                 query)
         prepared (if (and (contains? own-facets facet) bind-self?)
                    (bind-self slotsvals instance)
-                   slotsvals)]
+                   slotsvals)
+        carry (fn [kb query errors warnings structures]
+                {:kb kb
+                 :query query
+                 :errors (vec (or errors []))
+                 :warnings (vec (or warnings []))
+                 :error-structures (vec (or structures []))})]
     (loop [pairs (reorder-slotsvals prepared)
-           kb kb
-           query query]
+           bag (carry kb query errors warnings error-structures)]
       (cond
-        (nil? pairs) (copy-domain-and-range kb instance slotsvals facet query)
+        (nil? pairs)
+        (assoc (copy-domain-and-range (:kb bag) instance slotsvals facet (:query bag))
+               :errors (:errors bag)
+               :warnings (:warnings bag)
+               :error-structures (:error-structures bag))
         (not (term/cons? pairs)) (dotted! pairs)
         :else
         (let [pair (term/car pairs)
               slot (slot-in pair)
+              kb (:kb bag)
+              query (:query bag)
               add-values0 (vals-in pair)
               add-values (cond
                            (single-valued-slot? kb slot) (kb/un-andify add-values0)
@@ -1894,32 +2602,42 @@
                                             add-values old-values situation0
                                             (:query old-found))
                         {:kb (:kb old-found) :query (:query old-found)})
-              new-values (cond
-                           (or (nil? old-values)
-                               (utils/eql? combine-values-by overwriting))
-                           (if (single-valued-slot? (:kb cleaned) slot)
-                             (kb/val-to-vals (kb/vals-to-&-expr add-values))
-                             add-values)
-                           :else
-                           (compute-new-vals (:kb cleaned) slot old-values
-                                             add-values combine-values-by))
-              kb (:kb cleaned)
-              query (if (:active-obj-stack? kb)
-                      (push-all kb (:query cleaned) add-values)
-                      (:query cleaned))]
-          (if (or (some? new-values)
-                  (utils/eql? combine-values-by overwriting))
-            (let [stored (put-vals kb instance slot new-values
-                                   :facet facet
-                                   :install-inverses? false
-                                   :situation situation0
-                                   :query query)
-                  linked (if (contains? own-facets facet)
-                           (install-inverses (:kb stored) instance slot add-values
-                                             situation0 (:query stored))
-                           stored)]
-              (recur (term/cdr pairs) (:kb linked) (:query linked)))
-            (recur (term/cdr pairs) kb query)))))))
+              base (carry (:kb cleaned) (:query cleaned)
+                          (:errors bag) (:warnings bag) (:error-structures bag))
+              merged (if (or (nil? old-values)
+                             (utils/eql? combine-values-by overwriting))
+                       (assoc base :value
+                              (if (single-valued-slot? (:kb cleaned) slot)
+                                (kb/val-to-vals (kb/vals-to-&-expr add-values))
+                                add-values))
+                       (compute-new-vals base slot old-values
+                                         add-values combine-values-by))]
+          (if (store-refused? merged)
+            merged
+            (let [new-values (:value merged)
+                  kb (:kb merged)
+                  query (if (:active-obj-stack? kb)
+                          (push-all kb (:query merged) add-values)
+                          (:query merged))
+                  bag (carry kb query
+                             (:errors merged) (:warnings merged)
+                             (:error-structures merged))]
+              (if (or (some? new-values)
+                      (utils/eql? combine-values-by overwriting))
+                (let [stored (put-vals kb instance slot new-values
+                                       :facet facet
+                                       :install-inverses? false
+                                       :situation situation0
+                                       :query query)
+                      linked (if (contains? own-facets facet)
+                               (install-inverses (:kb stored) instance slot add-values
+                                                 situation0 (:query stored))
+                               stored)]
+                  (recur (term/cdr pairs)
+                         (carry (:kb linked) (:query linked)
+                                (:errors bag) (:warnings bag)
+                                (:error-structures bag))))
+                (recur (term/cdr pairs) bag)))))))))
 
 (defn create-instance-name
   "The next anonymous name for parent.

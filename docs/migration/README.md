@@ -13,16 +13,16 @@ The original source is one concatenated Lisp file, `src/knowledge-machine/km-2-5
 | 4 | [Built-in vocabulary and reset](04-built-in-vocabulary-and-reset.md) | `reset` rebuilds the built-in classes, slots, and instances in the caller's knowledge base. The prompt still only reads and prints. |
 | 5 | [The goal stack](05-the-goal-stack.md) | A query records goals and notices a repeated goal. The prompt still only reads and prints. |
 | 6 | [The interpreter](06-the-interpreter.md) | Literals, arithmetic, tests, local slot values, and constraint forms run. The prompt and the HTTP service both evaluate. |
+| 7 | [Unification and constraints](07-unification-and-constraints.md) | `&`, `&&`, and the other equality operators run. A constraint on a stored value is checked when the slot is read. |
+| 8 | [Subsumption](08-subsumption.md) | An existing instance can be matched to a description. A value an existing value already covers is not stored again. |
+| 9 | [Inheritance and subslots](09-inheritance-and-subslots.md) | A slot read uses the local store, rules inherited from classes, and values on subslots. |
+| 10 | [Prototypes](10-prototypes.md) | `(a-prototype Class)` builds a prototype, and a later slot read clones it onto an instance. |
+| 11 | [Explanations](11-explanations.md) | `(why)` prints the KM form of a stored explanation. A class rule, a clone, and `(explanation ...)` can supply one. |
 
 ## Still ahead
 
 The order comes from the call graph in [the migration plan](plan.md). That note also records where Clojure will not produce the same result as the Lisp. `loadme.lisp` is the Lisp load order. It is not this list.
 
-7. Unification and constraints, together.
-8. Subsumption, and the redundant-value check that uses it.
-9. Inheritance and subslots.
-10. Prototypes.
-11. Explanations.
 12. Situations, actions, theories, projection, and supersituations.
 13. Load, save, and undo. `fastsave` stays unported.
 14. English text and the taxonomy listing.

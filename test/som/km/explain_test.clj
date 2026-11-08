@@ -1,8 +1,12 @@
 (ns som.km.explain-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
+            [som.km.engine :as engine]
             [som.km.explain :as explain]
+            [som.km.frame :as frame]
             [som.km.read :as read]
-            [som.km.term :as term]))
+            [som.km.term :as term]
+            [som.km.utils :as utils]))
 
 (defn- term [text]
   (:value (read/read-term text)))
@@ -84,3 +88,161 @@
         (explain/desource (term/cons-cell (symbol "a") (symbol "b")))))
   (let [expr (term/cons-cell (symbol "a") (symbol "b"))]
     (is (= expr (explain/desource-decomment expr)))))
+
+(defn- answer [text]
+  (engine/evaluate text))
+
+(defn- on
+  "Evaluate text on the result of a previous evaluation."
+  [previous text]
+  (engine/evaluate text {:kb (:kb previous) :query (:query previous)}))
+
+(defn- nth-value [value n]
+  (loop [value value
+         n n]
+    (cond
+      (or (nil? value) (not (term/cons? value))) nil
+      (zero? n) (term/car value)
+      :else (recur (term/cdr value) (dec n)))))
+
+(defn- label [frame]
+  (when (term/km-symbol? frame) (term/symbol-name frame)))
+
+(deftest why-with-no-answer-says-so
+  (let [why (answer "(why)")]
+    (is (nil? (:value why)))
+    (is (not= "not-ported" (:error why)))
+    (is (str/includes? (:text why) "There are no answers to explain!"))))
+
+(deftest an-inherited-value-explains-itself
+  (let [ruled (answer "(every Cat has (color (black)))")
+        cat (on ruled "(_Cat1 has (instance-of (Cat)))")
+        color (on cat "(the color of _Cat1)")
+        why (on color "(why)")
+        direct (on color "(why (:triple _Cat1 color black))")
+        plain (answer "(Fred has (color (red)))")
+        bare (on plain "(why (:triple Fred color red))")]
+    (is (= (term "(black)") (:value color)))
+    (is (empty? (:errors color)))
+    (is (= (term "(t)") (:value why)))
+    (is (str/includes? (:text why) "(:triple _Cat1 color black [in *Global]) because:"))
+    (is (str/includes? (:text why) "RULE: (every Cat has (color (black)))"))
+    (is (str/includes? (:text direct) "RULE: (every Cat has (color (black)))"))
+    (is (= (term "(t)") (:value direct)))
+    (is (= (term "(t)") (:value bare)))
+    (is (str/includes? (:text bare) "(no explanation available)"))))
+
+(deftest an-inverse-triple-uses-the-stored-direction
+  (let [loved (answer "(Fred has (loves (Sue)))")
+        told (on loved "(explanation (:triple Fred loves Sue) ((added-at Person \"by hand\")))")
+        why (on told "(why (:triple Sue loves-of Fred))")]
+    (is (= (term "(t)") (:value told)))
+    (is (empty? (:errors told)))
+    (is (= (term "(t)") (:value why)))
+    (is (str/includes? (:text why) "(:triple Fred loves Sue"))
+    (is (str/includes? (:text why) "(added-at Person \"by hand\")"))))
+
+(deftest a-clone-explanation-survives-on-both-frames
+  (let [opened (answer "(a-prototype Cat)")
+        name (label (term/car (:value opened)))
+        colored (on opened (str "(" name " has (color (black)))"))
+        closed (on colored "(end-prototype)")
+        cat (on closed "(_Cat1 has (instance-of (Cat)))")
+        color (on cat "(the color of _Cat1)")
+        why (on color "(why (:triple _Cat1 color black))")
+        records (some (fn [[source target]]
+                        (when (utils/eql? target (symbol "_Cat1"))
+                          (frame/explanations (:kb color) source)))
+                      (:bindings (:kb color)))]
+    (is (= (term "(black)") (:value color)))
+    (is (= (term "(t)") (:value why)))
+    (is (str/includes? (:text why) "cloned-from"))
+    (is (str/includes? (:text why) name))
+    (is (some (fn [record]
+                (and (utils/eql? (symbol "color") (nth-value record 1))
+                     (utils/eql? (symbol "black") (nth-value record 2))
+                     (utils/eql? (symbol "cloned-from")
+                                 (term/car (nth-value record 3)))))
+              (utils/elements records)))
+    (is (not (some #(utils/eql? (symbol "instance-of") (nth-value % 1))
+                   (utils/elements records))))))
+
+(deftest a-bad-why-argument-is-a-user-error
+  (let [bad (answer "(why (Fred))")
+        created (answer "(a Cat)")]
+    (is (nil? (:value bad)))
+    (is (some #(str/includes? % "Bad argument to (why ...)!") (:errors bad)))
+    (is (some #(str/starts-with? % "ERROR! ") (:errors bad)))
+    (is (= "not-ported" (:error created)))
+    (is (= "This form is not ported yet: (a Cat)." (:message created)))))
+
+(deftest explanations-can-be-turned-off-and-on
+  (let [off (answer "(no-explanations)")
+        ruled (on off "(every Cat has (color (black)))")
+        cat (on ruled "(_Cat1 has (instance-of (Cat)))")
+        color (on cat "(the color of _Cat1)")
+        quiet (on color "(why)")
+        restored (on quiet "(explanations)")
+        dog-rule (on restored "(every Dog has (color (white)))")
+        dog (on dog-rule "(_Dog1 has (instance-of (Dog)))")
+        white (on dog "(the color of _Dog1)")
+        told (on white "(why)")]
+    (is (= (term "(t)") (:value off)))
+    (is (= (term "(black)") (:value color)))
+    (is (= (term "(t)") (:value quiet)))
+    (is (str/includes? (:text quiet) "(no explanation available)"))
+    (is (= (term "(t)") (:value restored)))
+    (is (= (term "(white)") (:value white)))
+    (is (str/includes? (:text told) "RULE: (every Dog has (color (white)))"))))
+
+(deftest a-local-situation-keeps-its-own-explanation
+  (let [started (engine/session)
+        sit (symbol "_Sit1")
+        kb (frame/set-situation (:kb started) sit)
+        colored (engine/evaluate "(_Cat1 has (color ((black (@ _Cat1 Cat color)))))"
+                                 {:kb kb :query (:query started)})
+        local (on colored "(why (:triple _Cat1 color black))")
+        global-kb (frame/set-situation (:kb local) term/global-situation)
+        global (engine/evaluate "(why (:triple _Cat1 color black))"
+                                {:kb global-kb :query (:query local)})
+        classed (engine/evaluate
+                 "(_Dog1 has (instance-of ((Dog (@ _Dog1 Thing instance-of)))))"
+                 {:kb kb :query (:query started)})
+        local-class (frame/explanations (:kb classed) (symbol "_Dog1") :situation sit)
+        global-class (frame/explanations (:kb classed) (symbol "_Dog1"))]
+    (is (str/includes? (:text local) "RULE: (every Cat has (color (black)))"))
+    (is (str/includes? (:text global) "(no explanation available)"))
+    (is (not (str/includes? (str (:text global)) "(every Cat has (color (black)))")))
+    (is (nil? local-class))
+    (is (some? global-class))))
+
+(deftest a-repeated-explanation-keeps-the-earlier-copy
+  (let [sit (symbol "_Sit1")
+        kb (frame/set-situation (:kb (engine/session)) sit)
+        entry (term "(_Cat1 color black (added-at Person \"local\"))")
+        other (term "(_Cat1 size small (added-at Person \"global\"))")
+        kb (frame/record-explanation kb (symbol "_Cat1") entry :situation sit)
+        kb (frame/record-explanation kb (symbol "_Cat1") entry
+                                     :situation term/global-situation)
+        kb (frame/record-explanation kb (symbol "_Cat1") other
+                                     :situation term/global-situation)
+        found (frame/explanation-records kb (symbol "_Cat1") nil :situation sit)
+        records (utils/elements (:value found))]
+    (is (= 2 (count records)))
+    (is (utils/equal? entry (first records)))
+    (is (utils/equal? other (second records)))))
+
+(deftest justify-prints-the-rule-and-get-justification-returns-it
+  (let [ruled (answer "(every Cat has (color (black)))")
+        cat (on ruled "(_Cat1 has (instance-of (Cat)))")
+        color (on cat "(the color of _Cat1)")
+        just (on color "(justify (:triple _Cat1 color black))")
+        got (on color "(get-justification (:triple _Cat1 color black))")
+        text (term/car (:value got))]
+    (is (= (term "(t)") (:value just)))
+    (is (str/includes? (:text just) "subgoal"))
+    (is (str/includes? (:text just) "(every Cat has (color (black)))"))
+    (is (term/singleton? (:value got)))
+    (is (string? text))
+    (is (str/includes? text "subgoal"))
+    (is (str/includes? text "(every Cat has (color (black)))"))))
