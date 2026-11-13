@@ -3,8 +3,10 @@
 
   The local store and the rules inherited from classes contribute.
   Values on a slot's subslots contribute too. A prototype is cloned
-  onto an ordinary instance before those are collected. Projection and
-  supersituations contribute nothing. A computed answer is written
+  onto an ordinary instance before those are collected. An inertial
+  fluent in a local situation is projected from the previous situation.
+  Own facts from supersituations and visible theories are merged. The
+  parent-situation value re-read stays off. A computed answer is written
   back unless the slot says not to cache, and the frame remembers that
   the slot was computed. A constraint that evaluated to nothing is put
   back, so a read does not drop it. Local and inherited constraints are
@@ -16,6 +18,7 @@
             [som.km.kbutils :as kb]
             [som.km.print :as print]
             [som.km.prototypes :as prototypes]
+            [som.km.situations :as situations]
             [som.km.taxonomy :as taxonomy]
             [som.km.term :as term]
             [som.km.unify :as unify]
@@ -116,13 +119,14 @@
     :else nil))
 
 (defn- own-rules
-  "Local values as a list of value lists. Supersituations add nothing.
+  "Local values plus facts from supersituations and visible theories.
 
   Own properties are used. Own definition is used when those are empty.
   Self is replaced. Comments stay, because the Lisp asks for them.
   :raw is the bound value list. :value is that list split into value
-  lists. Constraints are read from :raw, not from the split lists."
-  [state instance slot]
+  lists. Constraints are read from :raw, not from the split lists.
+  Supersituation values are included even when the local facet is empty."
+  [state instance slot km-int]
   (let [kb (:kb state)
         situation (frame/target-situation kb (frame/current-situation kb) instance slot)
         query (:query state)
@@ -135,13 +139,22 @@
                   (frame/get-vals (:kb own) instance slot
                                   :facet own-definition
                                   :situation situation
-                                  :query (:query own)))]
-    (when-let [values (:value defined)]
-      (let [bound (frame/bind-self values instance)]
-        {:kb (:kb defined)
-         :query (:query defined)
-         :raw bound
-         :value (kb/&&-exprs-to-valsets bound)}))))
+                                  :query (:query own)))
+        state (assoc state :kb (:kb defined) :query (or (:query defined) (:query state)))
+        local-raw (when-let [values (:value defined)]
+                    (frame/bind-self values instance))
+        local-sets (when local-raw (kb/&&-exprs-to-valsets local-raw))
+        inherited (situations/inherited-situation-rules state instance slot km-int)]
+    (if (refused? inherited)
+      inherited
+      (assoc inherited
+             :raw (utils/append-lists (term/km-list local-raw (:raw inherited)))
+             :value (utils/remove-duplicates
+                     (utils/remove-items nil
+                                         (utils/append-lists
+                                          (term/km-list local-sets (:value inherited))))
+                     :test utils/equal?
+                     :from-end? false)))))
 
 (defn- simple-local?
   "One value list of one atom that is not :incomplete and not a binding."
@@ -539,7 +552,7 @@
 (defn- local-values
   [state own single? appending? target km-int]
   (cond
-    (nil? own) (assoc state :value nil)
+    (or (nil? own) (nil? (:value own))) (assoc state :value nil)
     (simple-local? (:kb state) (:value own))
     (assoc state :value (term/car (:value own)))
     :else
@@ -553,11 +566,16 @@
 (defn- intermediate
   "Combine the value lists found so far and store them before the rules.
 
-  One list is stored after the at-most-1 and exactly-1 check. Several
-  lists are evaluated together, then that same check runs."
-  [state local-vals sub-vals single? appending? instance slot target km-int constraints]
+  A multivalued slot puts projected values first, then subslot values,
+  then local values. A single-valued slot leaves the projected values
+  out until the rules have run. One list is stored after the at-most-1
+  and exactly-1 check. Several lists are evaluated together, then that
+  same check runs."
+  [state projected-vals local-vals sub-vals single? appending? instance slot target km-int constraints]
   (let [sets (utils/remove-duplicates
-              (utils/remove-items nil (term/km-list sub-vals local-vals))
+              (utils/remove-items nil (if single?
+                                       (term/km-list sub-vals local-vals)
+                                       (term/km-list projected-vals sub-vals local-vals)))
               :test utils/equal?)]
     (cond
       (nil? sets) (assoc state :value nil)
@@ -730,15 +748,117 @@
            (print/km-format instance))
           state)))))
 
+(defn- km-length
+  [value]
+  (loop [value value
+         seen 0]
+    (cond
+      (nil? value) seen
+      (term/cons? value) (recur (term/cdr value) (inc seen))
+      :else seen)))
+
+(defn- add-text
+  [state text]
+  (assoc state :text (str (:text state) text)))
+
+(defn- record-projected
+  [state instance slot values prev]
+  (if (or (nil? values) (nil? prev))
+    state
+    (loop [pending values
+           kb (:kb state)]
+      (if (or (nil? pending) (not (term/cons? pending)))
+        (assoc state :kb kb)
+        (let [recorded (frame/record-explanation-for
+                        kb
+                        (term/km-list (symbol "the") slot (symbol "of") instance)
+                        (term/car pending)
+                        (term/km-list (symbol "projected-from") prev))]
+          (recur (term/cdr pending) (:kb recorded)))))))
+
+(defn- project-from-prev
+  "Values an inertial fluent keeps from the previous situation.
+
+  :values is nil when projection does not apply. A refusal from the
+  previous-situation read is returned as :state."
+  [state instance slot constraints km-int]
+  (if-not (and (frame/local-situation? (:kb state))
+               (frame/inertial-fluent? (:kb state) slot))
+    {:state state :values nil :prev nil}
+    (let [prev (situations/previous state km-int)]
+      (cond
+        (refused? prev) {:state prev :values nil :prev nil}
+        (nil? (:value prev)) {:state prev :values nil :prev nil}
+        :else
+        (let [read (km-int prev
+                           (term/km-list (symbol "in-situation")
+                                         (:value prev)
+                                         (term/km-list (symbol "the") slot
+                                                       (symbol "of") instance)))]
+          (cond
+            (refused? read) {:state read :values nil :prev (:value prev)}
+            (nil? constraints)
+            {:state read :values (:value read) :prev (:value prev)}
+            :else
+            (let [filtered (unify/filter-using-constraints
+                            read (:value read) constraints km-int :slot slot)]
+              {:state filtered
+               :values (when-not (refused? filtered) (:value filtered))
+               :prev (:value prev)})))))))
+
+(defn- maybe-project
+  "The one projected value to keep, or nil when the local list stands.
+
+  Equal lists return the first value and do not report a multiple-value
+  error. Two or more projected values, or two or more local values,
+  record the ERROR! sentences and keep the first. A failed unification
+  keeps the local list and the knowledge base the unification returned."
+  [state projected local slot instance km-int]
+  (cond
+    (nil? projected) {:state state :kept nil}
+    (utils/equal? projected local) {:state state :kept (term/car projected)}
+    :else
+    (let [state (if (>= (km-length projected) 2)
+                  (add-text state
+                            (str "ERROR! Projected multiple values "
+                                 (print/km-format projected)
+                                 " for the single-valued slot `"
+                                 (print/km-format slot)
+                                 "' on instance "
+                                 (print/km-format instance)
+                                 "!\nERROR! Discarding all but the first value ("
+                                 (print/km-format (term/car projected))
+                                 ")...\n"))
+                  state)
+          state (if (>= (km-length local) 2)
+                  (add-text state
+                            (str "ERROR! Found multiple values "
+                                 (print/km-format local)
+                                 " for the single-valued slot `"
+                                 (print/km-format slot)
+                                 "' on instance "
+                                 (print/km-format instance)
+                                 "!\nERROR! Discarding all but the first value ("
+                                 (print/km-format (term/car local))
+                                 ")...\n"))
+                  state)
+          projected-value (term/car projected)
+          local-value (when (term/cons? local) (term/car local))]
+      (if (nil? local-value)
+        {:state state :kept projected-value}
+        (let [unified (unify/lazy-unify-exprs state projected-value local-value km-int)]
+          {:state unified :kept (:value unified)})))))
+
 (defn slotvals-from-kb
   "The values of one slot from prototypes, the local store, subslots, and classes.
 
   A suitable prototype is cloned before the instance's own values and
   the class rules are collected. km-int is called as (km-int state expr
   :target target). A refusal is returned unchanged and is not recorded
-  as done. Projection and supersituations contribute nothing. The
-  answer is stored before the class rules are applied, then stored
-  again with the local constraints."
+  as done. An inertial fluent in a local situation is projected from
+  the previous situation. Own facts from supersituations and visible
+  theories are merged before that. The answer is stored before the
+  class rules are applied, then stored again with the local constraints."
   [state instance slot km-int & {:keys [target]}]
   (let [instance (frame/dereference (:kb state) instance)
         state (prototypes-first state instance slot km-int)]
@@ -746,43 +866,79 @@
       state
       (let [instance (frame/dereference (:kb state) instance)
             target (or target (term/km-list (symbol "the") slot (symbol "of") instance))
-            own (own-rules state instance slot)
-            state (if own (adopt state own) state)
-            single? (frame/single-valued-slot? (:kb state) slot)
-            appending? (frame/appending-slot? (:kb state) slot)
-            own-constraints (when own (constraint-walk (:raw own) :plural))
-            inherited (collected-rules state instance slot own km-int)]
-    (if (refused? inherited)
-      inherited
-      (let [state (:state inherited)
-            rules (if (frame/are-some? (:kb state) :defaults)
-                    (utils/append-lists
-                     (term/km-list (default-sets (:value own)) (:rules inherited)))
-                    (:rules inherited))
-            constraints (utils/append-lists
-                         (term/km-list (:constraints inherited) own-constraints))
-            sub (subslot-values state instance slot target km-int)]
-        (if (refused? sub)
-          sub
-          (let [local (local-values sub own single? appending? target km-int)]
-            (if (refused? local)
-              local
-              (let [mid (intermediate local (:value local) (:value sub)
-                                      single? appending? instance slot target
-                                      km-int constraints)]
-                (if (refused? mid)
-                  mid
-                  (let [folded (fold-rules mid (:value mid) rules single? appending?
-                                           slot target km-int constraints)]
-                    (if (refused? folded)
-                      folded
-                      (let [retried (retry-recursive folded (:value folded) rules
-                                                     single? appending? instance
-                                                     slot target km-int)]
-                        (if (refused? retried)
-                          retried
-                          (after-constraints retried instance slot (:value retried)
-                                             constraints own-constraints km-int))))))))))))))))
+            own (own-rules state instance slot km-int)]
+        (if (refused? own)
+          own
+          (let [raw (:raw own)
+                own-value (:value own)
+                state (dissoc own :raw)
+                single? (frame/single-valued-slot? (:kb state) slot)
+                appending? (frame/appending-slot? (:kb state) slot)
+                own-constraints (constraint-walk raw :plural)
+                inherited (collected-rules state instance slot own km-int)]
+            (if (refused? inherited)
+              inherited
+              (let [state (:state inherited)
+                    rules (if (frame/are-some? (:kb state) :defaults)
+                            (utils/append-lists
+                             (term/km-list (default-sets own-value) (:rules inherited)))
+                            (:rules inherited))
+                    constraints (utils/append-lists
+                                 (term/km-list (:constraints inherited) own-constraints))
+                    projected (project-from-prev state instance slot constraints km-int)]
+                (if (refused? (:state projected))
+                  (:state projected)
+                  (let [state (:state projected)
+                        prev (:prev projected)
+                        projected-vals (:values projected)
+                        sub (subslot-values state instance slot target km-int)]
+                    (if (refused? sub)
+                      sub
+                      (let [local (local-values sub (assoc state :value own-value)
+                                               single? appending? target km-int)]
+                        (if (refused? local)
+                          local
+                          (let [recorded (if single?
+                                           local
+                                           (record-projected local instance slot
+                                                             projected-vals prev))
+                                mid (intermediate recorded
+                                                  (when-not single? projected-vals)
+                                                  (:value local)
+                                                  (:value sub)
+                                                  single? appending? instance slot target
+                                                  km-int constraints)]
+                            (if (refused? mid)
+                              mid
+                              (let [folded (fold-rules mid (:value mid) rules single? appending?
+                                                       slot target km-int constraints)]
+                                (if (refused? folded)
+                                  folded
+                                  (let [retried (retry-recursive folded (:value folded) rules
+                                                                 single? appending? instance
+                                                                 slot target km-int)]
+                                    (if (refused? retried)
+                                      retried
+                                      (if-not single?
+                                        (after-constraints retried instance slot (:value retried)
+                                                           constraints own-constraints km-int)
+                                        (let [chosen (maybe-project retried projected-vals
+                                                                    (:value retried)
+                                                                    slot instance km-int)]
+                                          (cond
+                                            (refused? (:state chosen)) (:state chosen)
+                                            (nil? (:kept chosen))
+                                            (after-constraints (:state chosen) instance slot
+                                                               (:value retried)
+                                                               constraints own-constraints km-int)
+                                            :else
+                                            (let [recorded (record-projected
+                                                            (:state chosen) instance slot
+                                                            (term/km-list (:kept chosen)) prev)]
+                                              (after-constraints recorded instance slot
+                                                                 (term/km-list (:kept chosen))
+                                                                 constraints own-constraints
+                                                                 km-int))))))))))))))))))))))))
 
 (defn- numeric-list?
   [values]
@@ -851,6 +1007,56 @@
          (kb/val-unification-operator? (nth-value (term/car values) 1)))
     (drop-matching (kb/&-expr-to-vals (term/car values)) kb/constraint-expr?)
     :else (drop-matching values kb/constraint-expr?)))
+
+(defn cached-situation-lookup
+  "A slot already computed in the current situation, read in another.
+
+  :hit is true when frame and slot are done in the current situation's
+  target. The values are then read in the target of situation. The
+  current situation is not changed. A done slot whose stored value is
+  nil is still a hit. A miss returns the class test's knowledge base."
+  [state situation frame slot]
+  (let [classed (taxonomy/isa? (:kb state) situation (symbol "Situation"))]
+    (if-not (and (kb/kb-object? situation) (:value classed))
+      {:hit false :state (assoc state :kb (:kb classed))}
+      (let [kb (:kb classed)
+            current-target (frame/target-situation kb
+                                                    (frame/current-situation kb)
+                                                    frame slot)
+            passed-target (frame/target-situation kb situation frame slot)]
+        (if-not (frame/already-done? kb frame slot current-target)
+          {:hit false :state (assoc state :kb kb)}
+          (let [found (frame/get-vals kb frame slot
+                                      :situation passed-target
+                                      :query (:query state))]
+            {:hit true
+             :state (assoc state
+                           :kb (:kb found)
+                           :query (or (:query found) (:query state))
+                           :value (without-constraints (:kb found)
+                                                       (:value found)))}))))))
+
+(defn- situations-mode-error
+  [state frame slot]
+  (user-error state
+              (str "Attempt to call (the %s of %s) in the global situation!%n"
+                   "(Not allowed, as `%s' is a fluent and you're using KM's situation mechanism).%n"
+                   "DEBUGGING HINTS:%n"
+                   " * IF you issued your query for the `%s' slot from the global situation%n"
+                   "   THEN you shouldn't do this! You should only issue queries for a fluent slot from%n"
+                   "        within a situation, not from the global KB.%n"
+                   "   SOLUTIONS:%n"
+                   "     (i) Enter a situation by%n"
+                   "		KM> (new-situation)%n"
+                   "	 then reissue your query, or%n"
+                   "    (ii) Declare the `%s' slot as a non-fluent (i.e. with time-independent values), by%n"
+                   "	        KM> (%s has (fluent-status (*Non-Fluent)))")
+              (print/km-format slot)
+              (print/km-format frame)
+              (print/km-format slot)
+              (print/km-format slot)
+              (print/km-format slot)
+              (print/km-format slot)))
 
 (defn- class-slot
   "instance-of, classes, and all-classes, or nil for any other slot.
@@ -1058,12 +1264,20 @@
         (utils/eql? slot (symbol "inverse"))
         (assoc state :value (term/km-list (frame/invert-slot (:kb state) frame)))
 
+        (utils/eql? slot (symbol "supersituations"))
+        (situations/immediate-supersituations state frame km-int)
+
+        (utils/eql? slot (symbol "all-supersituations"))
+        (situations/all-supersituations state frame km-int)
+
         :else
         (if-let [walked (class-walk state frame slot)]
           walked
           (if-let [cached (cached-answer state frame slot)]
             cached
-            (slotvals-from-kb state frame slot km-int)))))))
+            (if (frame/ignore-slot-in-global? (:kb state) slot)
+              (situations-mode-error state frame slot)
+              (slotvals-from-kb state frame slot km-int))))))))
 
 (defn- frames-of
   [state frames slot km-int fail-mode]

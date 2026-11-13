@@ -18,14 +18,13 @@ The original source is one concatenated Lisp file, `src/knowledge-machine/km-2-5
 | 9 | [Inheritance and subslots](09-inheritance-and-subslots.md) | A slot read uses the local store, rules inherited from classes, and values on subslots. |
 | 10 | [Prototypes](10-prototypes.md) | `(a-prototype Class)` builds a prototype, and a later slot read clones it onto an instance. |
 | 11 | [Explanations](11-explanations.md) | `(why)` prints the KM form of a stored explanation. A class rule, a clone, and `(explanation ...)` can supply one. |
+| 12 | [Situations, actions, and theories](12-situations.md) | A local situation, a theory, and an action update the knowledge base the caller holds. An inertial fluent projects from the previous situation. |
+| 13 | [Load, save, and undo](13-load-save-and-undo.md) | A knowledge base is saved as KM text and loaded back. Undo restores a snapshot of the value the caller holds. `fastsave` stays unported. |
+| 14 | [English text and the taxonomy listing](14-english-and-taxonomy.md) | `make-sentence` and `make-phrase` turn an expression into one string. `(taxonomy)` prints the subclass tree in list order. `(pluralize)` records that it is no longer defined. |
+| 15 | [Trace, statistics, the event-chain walker, and the licence](15-trace-statistics-sadl-and-license.md) | `(trace)` records a line for each goal. The counters are reset and printed. `(do-plan)` walks a chain of events. `(license)` prints the repository licence. |
 
 ## Still ahead
 
-The order comes from the call graph in [the migration plan](plan.md). That note also records where Clojure will not produce the same result as the Lisp. `loadme.lisp` is the Lisp load order. It is not this list.
-
-12. Situations, actions, theories, projection, and supersituations.
-13. Load, save, and undo. `fastsave` stays unported.
-14. English text and the taxonomy listing.
-15. Trace, statistics, the SADL event-chain walker, and the license text.
+The planned steps are finished. The order came from the call graph in [the migration plan](plan.md). That note also records where Clojure will not produce the same result as the Lisp. `loadme.lisp` is the Lisp load order. It is not this list.
 
 `compiled-handlers.lisp` is a generated flattening of the interpreter. The port keeps one handler implementation. `compiler.lisp` is not ported. `htextify.lisp` is a stub.

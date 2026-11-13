@@ -53,8 +53,8 @@
   "The public result of one interpreted expression.
 
   :ok is false only for a form that is not ported yet. A syntax error
-  stays :ok and records the sentence under :errors. :message and :text
-  are present only when the interpreter produced them."
+  stays :ok and records the sentence under :errors. :message, :text, and
+  :statistics are present only when the interpreter produced them."
   [trimmed result]
   (cond-> {:ok (not= "not-ported" (:error result))
            :input trimmed
@@ -71,7 +71,10 @@
     (assoc :message (:message result))
 
     (some? (:text result))
-    (assoc :text (:text result))))
+    (assoc :text (:text result))
+
+    (some? (:statistics result))
+    (assoc :statistics (:statistics result))))
 
 (defn evaluate
   "Read one piece of Knowledge Machine text and evaluate it.

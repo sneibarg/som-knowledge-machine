@@ -434,6 +434,33 @@
                 value]))
         bindings))
 
+(defn read-next
+  "Read the next term from text, starting at index.
+
+  :end is where the next read should start. :error \"empty\" means
+  there is nothing left. :error \"read\" means the text at index is
+  not a term. :incomplete is true when that text is only a prefix.
+  bindings maps a #t name. Names match without regard to case."
+  ([text index]
+   (read-next text index {}))
+  ([text index {:keys [bindings]}]
+   (try
+     (let [text (str (or text ""))
+           opts {:bindings (normalize-bindings bindings)}
+           start (skip text (long (or index 0)))]
+       (if (>= start (count text))
+         {:ok false :error "empty" :end start}
+         (let [[form end] (read-form text start opts)]
+           {:ok true :value form :end end})))
+     (catch clojure.lang.ExceptionInfo thrown
+       (if (:km/read (ex-data thrown))
+         {:ok false
+          :error "read"
+          :end (or (:index (ex-data thrown)) index)
+          :incomplete (boolean (:incomplete (ex-data thrown)))
+          :message (.getMessage thrown)}
+         (throw thrown))))))
+
 (defn read-term
   "Read one Knowledge Machine term from text.
 

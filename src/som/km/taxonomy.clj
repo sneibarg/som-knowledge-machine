@@ -15,10 +15,15 @@
   all-instances, and all-subslots read the stored links. They do not
   evaluate a slot expression and they do not call the interpreter.
   all-superclasses adds Thing and leaves the class itself out.
-  immediate-superclasses still does not invent Thing."
+  immediate-superclasses still does not invent Thing.
+
+  taxonomy-text prints the tree. The walk follows the relation in list
+  order. It does not sort by symbol name and it does not follow hash
+  order. The interpreter is passed in as km-int."
   (:refer-clojure :exclude [isa?])
   (:require [som.km.frame :as frame]
             [som.km.kbutils :as kb]
+            [som.km.print :as print]
             [som.km.term :as term]
             [som.km.utils :as utils]))
 
@@ -801,3 +806,224 @@
           (recur (term/cdr rest)
                  (:kb imm)
                  (into acc (utils/elements (:value imm)))))))))
+
+(def ^:private indent 3)
+(def ^:private max-depth 9999)
+
+(defn- add-text
+  [state text]
+  (assoc state :text (str (:text state) text)))
+
+(defn- member-set
+  [values]
+  (set (utils/elements values)))
+
+(defn- same-members?
+  [left right]
+  (= (member-set left) (member-set right)))
+
+(defn- extras
+  [original kept]
+  (let [have (member-set kept)]
+    (filterv #(not (contains? have %)) (utils/elements original))))
+
+(defn- drop-redundant
+  "Delete superclass or subclass values that remove-subsumers would drop.
+
+  The check walks every stored frame. A link that is already minimal
+  stays, including its order."
+  [state slot shrink]
+  (loop [names (vec (frame/objects (:kb state)))
+         state state]
+    (if (empty? names)
+      state
+      (let [class (first names)
+            found (frame/get-vals (:kb state) class slot :query (:query state))
+            shrunk (shrink (:kb found) (:value found))
+            state (assoc state :kb (:kb shrunk) :query (:query found))]
+        (recur (rest names)
+               (if (same-members? (:value found) (:value shrunk))
+                 state
+                 (reduce (fn [state value]
+                           (let [deleted (frame/delete-val (:kb state) class slot value
+                                                           :query (:query state))]
+                             (assoc state :kb (:kb deleted) :query (:query deleted))))
+                         state
+                         (extras (:value found) (:value shrunk)))))))))
+
+(defn clean-taxonomy
+  "Remove a redundant superclass or subclass link.
+
+  The three progress lines are recorded on :text. Partition checking
+  is not run. The Lisp prints the same three lines and then checks
+  partitions."
+  [state]
+  (-> state
+      (add-text "Removing redundant superclasses...\n")
+      (drop-redundant (symbol "superclasses") remove-subsumers)
+      (add-text "Removing redundant subclasses...\n")
+      (drop-redundant (symbol "subclasses") remove-subsumees)
+      (add-text "Computing subclasses of Thing...\n")))
+
+(defn- spaces
+  [n]
+  (if (pos? n) (apply str (repeat n \space)) ""))
+
+(defn- concept-text
+  [kb concept htmlify?]
+  (cond
+    (and htmlify?
+         (kb/kb-object? concept)
+         (frame/known-frame? kb concept))
+    ""
+    (nil? concept) "()"
+    :else (print/km-format concept)))
+
+(defn- line-for
+  [kb concept tab htmlify? mark]
+  (str (case mark
+         :instance (str "I" (spaces (dec tab)))
+         :unplaced (str "?" (spaces (dec tab)))
+         (spaces tab))
+       (concept-text kb concept htmlify?)))
+
+(defn- refused-state?
+  [state]
+  (= "not-ported" (:error state)))
+
+(defn- slot-of
+  [state frame relation km-int]
+  (km-int state (term/km-list (symbol "the") relation (symbol "of") frame)))
+
+(defn- named-values
+  [kb values]
+  (filterv #(frame/named-instance? kb %) (utils/elements values)))
+
+(defn- skip-tax-node?
+  [kb node relation]
+  (and (utils/eql? relation (symbol "instance-of"))
+       (or (not (kb/kb-object? node))
+           (frame/anonymous-instance? kb node))))
+
+(declare tax-nodes)
+
+(defn- tax-node
+  [state node relation km-int htmlify? done tab]
+  (let [item (line-for (:kb state) node tab htmlify? nil)
+        instances (slot-of state node (symbol "instances") km-int)]
+    (if (refused-state? instances)
+      {:state instances :lines [item] :done done}
+      (let [children (slot-of instances node relation km-int)]
+        (if (refused-state? children)
+          {:state children :lines [item] :done done}
+          (let [named (named-values (:kb children) (:value instances))
+                specs (filterv utils/lisp-atom?
+                               (utils/elements (:value children)))
+                instance-lines (mapv #(line-for (:kb children) %
+                                                (+ tab indent) htmlify? :instance)
+                                     named)]
+            (if (and (seq specs) (contains? done node))
+              {:state children
+               :lines [item (str (spaces (+ tab indent)) "...")]
+               :done done}
+              (let [deeper (tax-nodes children specs relation km-int htmlify?
+                                      (into (conj done node)
+                                            (utils/elements (:value instances)))
+                                      (+ tab indent))]
+                {:state (:state deeper)
+                 :lines (into (into [item] instance-lines) (:lines deeper))
+                 :done (:done deeper)}))))))))
+
+(defn- tax-nodes
+  [state nodes relation km-int htmlify? done tab]
+  (cond
+    (or (nil? nodes) (not (or (seq nodes) (term/cons? nodes))))
+    {:state state :lines [] :done done}
+
+    (> (quot tab indent) max-depth)
+    {:state state
+     :lines [(str (spaces (+ tab indent)) "...more...")]
+     :done done}
+
+    :else
+    (loop [nodes (vec nodes)
+           state state
+           done done
+           lines []]
+      (cond
+        (empty? nodes) {:state state :lines lines :done done}
+        (not (utils/lisp-atom? (first nodes)))
+        (recur (rest nodes) state done lines)
+        (skip-tax-node? (:kb state) (first nodes) relation)
+        (recur (rest nodes) state done lines)
+        :else
+        (let [one (tax-node state (first nodes) relation km-int htmlify? done tab)]
+          (if (refused-state? (:state one))
+            {:state (:state one)
+             :lines (into lines (:lines one))
+             :done (:done one)}
+            (recur (rest nodes)
+                   (:state one)
+                   (:done one)
+                   (into lines (:lines one)))))))))
+
+(defn- unplaced-lines
+  [state done htmlify?]
+  (let [kb (:kb state)
+        names (loop [pending (vec (frame/objects kb))
+                     seen #{}
+                     acc []]
+                (if (empty? pending)
+                  acc
+                  (let [name (frame/dereference kb (first pending))]
+                    (recur (rest pending)
+                           (conj seen name)
+                           (if (or (contains? done name)
+                                   (contains? seen name)
+                                   (utils/eql? name thing)
+                                   (frame/anonymous-instance? kb name))
+                             acc
+                             (conj acc name))))))]
+    (mapv #(line-for kb % indent htmlify? :unplaced) names)))
+
+(defn taxonomy-text
+  "The lines of (taxonomy node relation), and the knowledge base.
+
+  Descending subclasses removes redundant links first and records the
+  three progress lines. Under Thing those lines are followed by Thing,
+  then each subclass in list order, then a named frame the walk did not
+  reach. A named instance is marked with I. An unplaced frame is marked
+  with ?. Three spaces is one level. htmlify omits a known frame's name
+  because htextify returns nothing. The command does not pass htmlify."
+  [state node relation km-int & {:keys [htmlify?] :or {htmlify? false}}]
+  (let [node (or node thing)
+        relation (or relation (symbol "subclasses"))
+        state (if (utils/eql? relation (symbol "subclasses"))
+                (clean-taxonomy state)
+                state)]
+    (if (and (utils/eql? node thing)
+             (utils/eql? relation (symbol "subclasses")))
+      (let [top (immediate-subclasses (:kb state) thing)
+            children (filterv #(not (utils/eql? % thing))
+                              (utils/elements (:value top)))
+            state (assoc state :kb (:kb top))
+            walked (tax-nodes state children relation km-int htmlify? #{} indent)]
+        (if (refused-state? (:state walked))
+          {:state (:state walked) :lines (:lines walked)}
+          (let [lines (into (:lines walked)
+                            (unplaced-lines (:state walked)
+                                            (conj (:done walked) thing)
+                                            htmlify?))]
+            {:state (reduce (fn [state line]
+                              (add-text state (str line "\n")))
+                            (add-text (:state walked) "Thing\n")
+                            lines)
+             :lines (:lines walked)})))
+      (let [walked (tax-node state node relation km-int htmlify? #{} 0)]
+        (if (refused-state? (:state walked))
+          walked
+          {:state (reduce (fn [state line]
+                            (add-text state (str line "\n")))
+                          (:state walked)
+                          (:lines walked))
+           :lines (:lines walked)})))))

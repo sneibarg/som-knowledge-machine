@@ -22,6 +22,15 @@
   [value items]
   (boolean (some #(utils/eql? % value) (utils/elements items))))
 
+(defn- same-store?
+  "True when two knowledge bases hold the same frames.
+
+  A top-level query zeroes the access counter, so that counter is not
+  part of the comparison."
+  [left right]
+  (= (assoc-in left [:runtime :kb-accesses] 0)
+     (assoc-in right [:runtime :kb-accesses] 0)))
+
 (deftest same-class-instances-unify
   (let [left (answer "(_Cat1 has (instance-of (Cat)))")
         both (on left "(_Cat2 has (instance-of (Cat)))")
@@ -37,7 +46,7 @@
         failed (on both "(*Fred & *Sue)")]
     (is (nil? (:value failed)))
     (is (some #(re-find #"different objects" %) (:errors failed)))
-    (is (= (:kb both) (:kb failed)))))
+    (is (same-store? (:kb both) (:kb failed)))))
 
 (deftest numbers-and-the-equality-test
   (is (= (term "(1)") (:value (answer "(1 & 1)"))))
@@ -58,7 +67,7 @@
         numbers (answer "(1 &? 2)")
         fresh (answer "t")]
     (is (= (term "(t)") (:value tested)))
-    (is (= (:kb both) (:kb tested)))
+    (is (same-store? (:kb both) (:kb tested)))
     (is (= (symbol "_C2") (frame/dereference (:kb tested) (symbol "_C2"))))
     (is (nil? (:value numbers)))
     (is (= (:kb fresh) (:kb numbers)))))
@@ -71,7 +80,7 @@
         classes (frame/get-vals (:kb combined) (symbol "_C1") (symbol "instance-of"))]
     (is (nil? (:value rejected)))
     (is (empty? (:errors rejected)))
-    (is (= (:kb both) (:kb rejected)))
+    (is (same-store? (:kb both) (:kb rejected)))
     (is (= (term "(_C1)") (:value combined)))
     (is (holds? (symbol "Cat") (:value classes)))
     (is (holds? (symbol "Dog") (:value classes)))))
@@ -117,7 +126,7 @@
         failed (on both "(_C1 &+! _D1)")]
     (is (nil? (:value failed)))
     (is (empty? (:errors failed)))
-    (is (= (:kb both) (:kb failed)))))
+    (is (same-store? (:kb both) (:kb failed)))))
 
 (deftest an-inequality-blocks-unification
   (let [left (answer "(_C1 has (instance-of (Cat)))")
@@ -170,7 +179,7 @@
         both (on left "(_P2 has (age (24)))")
         tested (on both "(_P1 &? _P2)")]
     (is (nil? (:value tested)))
-    (is (= (:kb both) (:kb tested)))))
+    (is (same-store? (:kb both) (:kb tested)))))
 
 (deftest creation-stays-unported-and-a-test-can-use-an-existential
   (is (= "not-ported" (:error (answer "(a Cat)"))))

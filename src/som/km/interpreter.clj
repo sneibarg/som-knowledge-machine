@@ -11,28 +11,45 @@
   then tries to create, which is still refused. (every Class has ...)
   stores a rule that a slot read inherits. (a-prototype Class) builds a
   prototype, and a later slot read clones it. (a Class) does that only
-  while a prototype is being built. (why), (justify), and
-  (get-justification) print a stored explanation as a KM form.
+  while a prototype is being built, except (a Situation) and (a Theory),
+  which create an instance either way. (why) prints a stored
+  explanation as a KM form. (justify) prints that form too, unless
+  justify-leaves is on, in which case a leaf is one English sentence.
+  (get-justification) returns the same text. (make-sentence),
+  (make-phrase), and (andify) build English. (pluralize) records that
+  it is no longer defined. (taxonomy) prints the subclass tree.
+  Situations, actions, and theories run. (do-plan) walks a chain of
+  events. (evaluate) runs a quoted expression. (trace), (untrace), spy,
+  and profile run. (license) prints the licence text. do-script and the
+  is-true commands stay refused. load-kb, save-kb, write-kb, checkpoint,
+  and undo run. fastsave-kb stays refused.
   Embedded Lisp is not evaluated.
 
   :value is the answer list. :errors, :error-structures, and :warnings
   collect the notes the Lisp returns beside the answer. An error is
   recorded and reasoning continues, unless the query's :on-error is
-  :abort or :abort-silently. Nothing is printed, and the debugger is
-  not entered."
+  :abort or :abort-silently. A trace line is recorded on :text. The
+  interactive debugger is not entered."
   (:require [clojure.string :as str]
+            [som.km.anglify :as anglify]
             [som.km.errors :as errors]
             [som.km.explain :as explain]
             [som.km.frame :as frame]
             [som.km.kbutils :as kb]
+            [som.km.license :as license]
+            [som.km.loadkb :as loadkb]
             [som.km.minimatch :as match]
             [som.km.print :as print]
             [som.km.prototypes :as prototypes]
+            [som.km.sadl :as sadl]
+            [som.km.situations :as situations]
             [som.km.slotvals :as slotvals]
             [som.km.stack :as stack]
+            [som.km.stats :as stats]
             [som.km.subsumes :as subsumes]
             [som.km.taxonomy :as taxonomy]
             [som.km.term :as term]
+            [som.km.trace :as trace]
             [som.km.unify :as unify]
             [som.km.utils :as utils]))
 
@@ -143,7 +160,7 @@
     "no-sanity-checks" "store-kb" "restore-kb" "fail-quietly" "fail-noisily"
     "requires-km-version" "catch-explanations" "show-explanations"
     "show-explanations-xml" "instance-of-is-fluent" "instance-of-is-nonfluent"
-    "eval" "setq" "tracekm" "untracekm" "license" "enable-slot-checking"
+    "eval" "setq" "tracekm" "untracekm" "license" "licence" "enable-slot-checking"
     "disable-slot-checking" "comments" "nocomments" "trace-to-file-on"
     "trace-to-file-off" "t2f-on" "t2f-off" "trace" "untrace"})
 
@@ -244,20 +261,38 @@
   (let [popped (stack/pop-from-goal-stack (:kb state) (:query state))]
     (assoc state :kb (:kb popped) :query (:query popped))))
 
-(defn- reset-top
+(defn- prepare-top
   "The part of a top-level call that clears the query's reasoning.
 
-  The object stack, the knowledge base, the fail mode, a caller's depth
-  limit, and a caller's :on-error stay. Installing inverses is left as
-  the caller set it."
-  [query]
-  (assoc (or query frame/empty-query)
-         :goal-stack nil
-         :instances-being-unified nil
-         :classification-inferences 0
-         :query-directed-inferences 0
-         :depth 0
-         :looping? false))
+  The stacks, the depth, the trace depth, and the looping flag are
+  always cleared. The counters, including knowledge-base accesses, are
+  zeroed only when reset statistics is enabled. Tracing is reset either
+  way, so a trace left on comes back on. The object stack, the fail
+  mode, a caller's depth limit, and a caller's :on-error stay.
+  Installing inverses is left as the caller set it."
+  [kb query]
+  (let [kb (trace/reset-trace kb)
+        base (assoc (or query frame/empty-query)
+                    :goal-stack nil
+                    :instances-being-unified nil
+                    :depth 0
+                    :trace-depth 0
+                    :looping? false
+                    :profiling? false)
+        now (System/nanoTime)]
+    (if (stats/reset-enabled? kb)
+      {:kb (assoc-in kb [:runtime :kb-accesses] 0)
+       :query (assoc base
+                     :classification-inferences 0
+                     :query-directed-inferences 0
+                     :skolems 0
+                     :unifications 0
+                     :max-depth 0
+                     :classifications-attempted 0
+                     :classifications-succeeded 0
+                     :statistics-cpu-start now
+                     :spot-runtime now)}
+      {:kb kb :query base})))
 
 (defn- exact-trace?
   [expr]
@@ -280,12 +315,13 @@
           :kb (:kb shown)
           :query (:query shown)
           :value nil
-          :text (:text shown))
+          :text (str (:text state) (:text shown)))
    expr fail-mode "show-goal-stack"))
 
 (defn- lisp-command
   [state expr name fail-mode]
-  (cond
+  (or (loadkb/logging-command state expr name)
+      (cond
     (= name "reset-kb")
     (let [rebuilt (frame/reset (:kb state) :query (:query state))]
       (assoc state :kb (:kb rebuilt) :query (:query rebuilt)
@@ -296,7 +332,7 @@
                  (:kb state) (:query state))]
       (assoc state :kb (:kb shown) :query (:query shown)
              :value (term/km-list (symbol "t"))
-             :text (:text shown)))
+             :text (str (:text state) (:text shown))))
 
     (= name "clear-obj-stack")
     (let [cleared (stack/clear-obj-stack (:query state))]
@@ -326,28 +362,78 @@
                   (if (nil? slots) true (vec (utils/elements slots))))
              :value (term/km-list (symbol "t"))))
 
+    (contains? #{"license" "licence"} name)
+    (if (term/singleton? expr)
+      (no-values-if-error
+       (assoc state :text (str (:text state) (license/text)) :value nil)
+       expr fail-mode name)
+      (embedded-refusal state expr nil))
+
+    (contains? #{"comments" "nocomments"} name)
+    (if (term/singleton? expr)
+      (if (= name "comments")
+        (trace/comments-command state)
+        (trace/nocomments-command state))
+      (embedded-refusal state expr nil))
+
+    (contains? #{"trace-to-file-on" "t2f-on"} name)
+    (let [tail (term/cdr expr)]
+      (cond
+        (nil? tail) (trace/trace-to-file-on state nil)
+        (term/singleton? tail) (trace/trace-to-file-on state (term/car tail))
+        :else (embedded-refusal state expr nil)))
+
+    (contains? #{"trace-to-file-off" "t2f-off"} name)
+    (if (term/singleton? expr)
+      (trace/trace-to-file-off state)
+      (embedded-refusal state expr nil))
+
     (contains? #{"eval" "setq" "km-setq"} name)
     (embedded-refusal state expr (str name " is not evaluated."))
 
     :else
-    (embedded-refusal state expr nil)))
+    (embedded-refusal state expr nil))))
 
 (defn- command
-  "A traced form, a load or save, or an embedded-Lisp name.
+  "A trace command, a load or save, or an embedded-Lisp name.
 
   These run before a goal is pushed, so they do not count as an
-  inference. Extra arguments are ignored. nil means this expression is
-  not one of those commands."
+  inference. A trace command is the exact singleton. Extra arguments do
+  not match it. nil means this expression is not one of those commands."
   [state expr fail-mode]
   (let [name (head-name expr)]
     (cond
       (exact-trace? expr)
-      (refuse-text state (str "Tracing is not ported yet: " (print/km-format expr) "."))
+      (if (str/starts-with? name "untrace")
+        (trace/untrace-command state)
+        (trace/trace-command state))
+
+      (= name "undo")
+      (loadkb/undo-command state
+                           (when (term/cons? (term/cdr expr))
+                             (term/car (term/cdr expr))))
 
       (contains? load-save-names name)
-      (refuse-text state
-                   (if (contains? #{"fastsave-kb" "faslsave-kb"} name)
-                     (str "fastsave stays unported: " (print/km-format expr) ".")
+      (cond
+        (contains? #{"fastsave-kb" "faslsave-kb" "fastload-kb"} name)
+        (refuse-text state (str "fastsave stays unported: " (print/km-format expr) "."))
+
+        (= name "load-newest-kb")
+        (refuse-text state
+                     (str "Loading and saving a knowledge base is not ported yet: "
+                          (print/km-format expr) "."))
+
+        (contains? #{"load-kb" "reload-kb"} name)
+        (loadkb/load-command state expr km-int (= name "reload-kb"))
+
+        (= name "save-kb")
+        (loadkb/save-command state expr)
+
+        (= name "write-kb")
+        (loadkb/write-command state expr)
+
+        :else
+        (refuse-text state
                      (str "Loading and saving a knowledge base is not ported yet: "
                           (print/km-format expr) ".")))
 
@@ -360,21 +446,31 @@
 
       :else nil)))
 
+(defn- reserved-name?
+  "True when value is a reserved keyword and not an existing frame.
+
+  append is both a keyword and a built-in slot. A saved instances list
+  names it. A keyword that is not a frame is still refused."
+  [state value]
+  (and (contains? kb/reserved-keywords value)
+       (not (and (kb/kb-object? value)
+                 (frame/known-frame? (:kb state) value)))))
+
 (defn- reserved-hits
-  [values]
+  [state values]
   (loop [values values
          acc []]
     (cond
       (nil? values) (term/build-list acc nil)
       (not (term/cons? values)) nil
-      (contains? kb/reserved-keywords (term/car values))
+      (reserved-name? state (term/car values))
       (recur (term/cdr values) (conj acc (term/car values)))
       :else (recur (term/cdr values) acc))))
 
 (defn- no-reserved
   "A state whose keywords were reported, or nil when the list is clean."
   [state values]
-  (when-let [hits (reserved-hits values)]
+  (when-let [hits (reserved-hits state values)]
     (-> (report-error state :user-error
                       "Keyword(s) %s found where concept name(s) were expected, within a list of %s KM expressions: %s (Error = missing parentheses?)"
                       (print/km-format hits)
@@ -438,11 +534,17 @@
           (assoc :value nil))
 
       (and check-for-looping (stack/looping-on? kb query commented))
-      (use-result state (stack/handle-looping kb query cleaned))
+      (let [traced (trace/km-trace state :comment "Looping on ~a!" [cleaned])
+            handled (stack/handle-looping (:kb traced) (:query traced) cleaned)]
+        (use-result traced handled))
 
       (too-deep? query)
-      (use-result state (stack/handle-looping kb query cleaned
-                                              :reason :depth-limit-reached))
+      (let [traced (trace/km-trace state :comment
+                                   "Maximum depth limit reached, doing ~a!"
+                                   [cleaned])
+            handled (stack/handle-looping (:kb traced) (:query traced) cleaned
+                                          :reason :depth-limit-reached)]
+        (use-result traced handled))
 
       :else nil)))
 
@@ -682,28 +784,46 @@
       expanded
       (assoc expanded :value (term/km-list instance)))))
 
+(defn- situation-or-theory?
+  [class]
+  (and (kb/kb-object? class)
+       (or (utils/eql? class (symbol "Situation"))
+           (utils/eql? class (symbol "Theory")))))
+
 (defn- a-handler
   "Create a participant while a prototype is open.
 
-  Outside that mode the form stays refused, including (a Cat)."
+  (a Situation) and (a Theory) create an instance outside that mode.
+  (a Cat) stays refused."
   [state pieces]
-  (if (frame/curr-prototype (:kb state))
+  (cond
+    (frame/curr-prototype (:kb state))
     (listed (prototypes/create-instance state (first pieces) nil))
-    (refuse state pieces)))
+    (situation-or-theory? (first pieces))
+    (listed (prototypes/create-instance state (first pieces) nil))
+    :else (refuse state pieces)))
 
 (defn- a-with-handler
   "Create a participant and evaluate the paths in its slots.
 
-  Outside prototype mode the form stays refused. called stays refused."
+  (a Situation with ...) and (a Theory with ...) create an instance
+  outside prototype mode and do not evaluate those paths. (a Cat with
+  ...) stays refused. called stays refused."
   [state pieces]
-  (if-not (frame/curr-prototype (:kb state))
-    (refuse state pieces)
-    (let [[class slotsvals] pieces
-          created (prototypes/create-instance state class slotsvals)]
-      (cond
-        (refused? created) created
-        (nil? (:value created)) created
-        :else (expand-prototype-paths created (:value created))))))
+  (let [[class slotsvals] pieces]
+    (cond
+      (frame/curr-prototype (:kb state))
+      (let [created (prototypes/create-instance state class slotsvals)]
+        (cond
+          (refused? created) created
+          (nil? (:value created)) created
+          :else (expand-prototype-paths created (:value created))))
+      (situation-or-theory? class)
+      (let [[checked ok?] (slotsvals-ok? state slotsvals)]
+        (if-not ok?
+          checked
+          (listed (prototypes/create-instance checked class slotsvals))))
+      :else (refuse state pieces))))
 
 (defn- a-prototype-handler
   "(a-prototype Class) is (a-prototype Class with)."
@@ -1447,9 +1567,196 @@
   [pattern handler]
   [(pat pattern) handler])
 
+(defn- in-situation-handler
+  [state pieces]
+  (situations/in-situation state (first pieces) nil km-int))
+
+(defn- in-situation-body-handler
+  [state pieces]
+  (situations/in-situation state (first pieces) (second pieces) km-int))
+
+(defn- in-situation-fast-handler
+  "Read a slot that is already computed, without entering the situation.
+
+  A miss evaluates (the slot of frame) in that situation and restores."
+  [state pieces]
+  (let [[situation slot frame] pieces
+        body (term/km-list (symbol "the") slot (symbol "of") frame)]
+    (if-not (kb/kb-object? situation)
+      (situations/in-situation state situation body km-int)
+      (let [hit (slotvals/cached-situation-lookup state situation frame slot)]
+        (if (:hit hit)
+          (:state hit)
+          (situations/in-situation (:state hit) situation body km-int))))))
+
+(defn- in-theory-handler
+  [state pieces]
+  (situations/in-situation state (first pieces) nil km-int :theory? true))
+
+(defn- in-theory-body-handler
+  [state pieces]
+  (situations/in-situation state (first pieces) (second pieces) km-int :theory? true))
+
+(defn- end-situation-handler
+  [state _]
+  (situations/in-situation state term/global-situation nil km-int))
+
+(defn- visible-theories-handler
+  [state _]
+  (assoc state :value (frame/visible-theories (:kb state))))
+
+(defn- see-theory-handler
+  [state pieces]
+  (situations/revise-visible-theories state (first pieces) km-int false))
+
+(defn- hide-theory-handler
+  [state pieces]
+  (situations/revise-visible-theories state (first pieces) km-int true))
+
+(defn- new-situation-handler
+  [state _]
+  (situations/new-situation state km-int))
+
+(defn- do-handler
+  [state pieces]
+  (situations/do-form state (first pieces) nil km-int))
+
+(defn- do-next-handler
+  [state pieces]
+  (situations/do-form state (first pieces) (second pieces) km-int))
+
+(defn- do-and-next-handler
+  [state pieces]
+  (situations/do-form state (first pieces) nil km-int :change-to-next? true))
+
+(defn- do-and-next-at-handler
+  [state pieces]
+  (situations/do-form state (first pieces) (second pieces) km-int :change-to-next? true))
+
+(defn- try-do-handler
+  [state pieces]
+  (situations/do-form state (first pieces) nil km-int :test? true))
+
+(defn- try-do-at-handler
+  [state pieces]
+  (situations/do-form state (first pieces) (second pieces) km-int :test? true))
+
+(defn- try-do-and-next-handler
+  [state pieces]
+  (situations/do-form state (first pieces) nil km-int :change-to-next? true :test? true))
+
+(defn- try-do-and-next-at-handler
+  [state pieces]
+  (situations/do-form state (first pieces) (second pieces) km-int
+                     :change-to-next? true :test? true))
+
+(defn- do-concurrently-handler
+  [state pieces]
+  (situations/do-concurrently state (first pieces) km-int))
+
+(defn- do-concurrently-at-handler
+  [state pieces]
+  (situations/do-concurrently state (first pieces) km-int :next (second pieces)))
+
+(defn- do-concurrently-and-next-handler
+  [state pieces]
+  (situations/do-concurrently state (first pieces) km-int :change-to-next? true))
+
+(defn- do-concurrently-and-next-at-handler
+  [state pieces]
+  (situations/do-concurrently state (first pieces) km-int
+                              :next (second pieces)
+                              :change-to-next? true))
+
+(defn- next-situation-handler
+  [state _]
+  (let [result (situations/next-command state km-int)]
+    (if (nil? (:value result))
+      result
+      (situations/answer-one result))))
+
+(defn- curr-situation-handler
+  [state _]
+  (assoc state :value (term/km-list (frame/current-situation (:kb state)))))
+
 (defn- later
   [pattern]
   (entry pattern refuse))
+
+(defn- sentence-command
+  [state pieces capitalize? terminator]
+  (let [evaluated (km-int state (first pieces))]
+    (if (refused? evaluated)
+      evaluated
+      (let [built (anglify/make-sentence evaluated (:value evaluated) km-int
+                                         :capitalize? capitalize?
+                                         :terminator terminator
+                                         :unique km-unique-int)]
+        (cond
+          (refused? built) built
+          (refused? (:state built)) (:state built)
+          :else (assoc (:state built) :value (term/km-list (:text built))))))))
+
+(defn- andify-command
+  [state pieces]
+  (let [evaluated (km-int state (first pieces) :rewrite? true)]
+    (if (refused? evaluated)
+      evaluated
+      (assoc evaluated
+             :value (term/km-list
+                     (term/cons-cell :seq (anglify/andify (:value evaluated))))))))
+
+(defn- pluralize-command
+  [state pieces]
+  (-> (report-error state :user-error
+                    "(pluralize %s): pluralize is no longer defined in KM1.4 - use \"-s\" suffix instead!"
+                    (print/km-format (first pieces)))
+      (assoc :value nil)))
+
+(defn- finish-taxonomy
+  [state node relation]
+  (let [printed (taxonomy/taxonomy-text state node relation km-int)]
+    (if (refused? (:state printed))
+      (:state printed)
+      (assoc (:state printed) :value (term/km-list (symbol "t"))))))
+
+(defn- taxonomy-command
+  [state pieces]
+  (let [args (first pieces)]
+    (cond
+      (nil? args)
+      (finish-taxonomy state (symbol "Thing") (symbol "subclasses"))
+
+      (term/singleton? args)
+      (let [node (km-unique-int state (term/car args))]
+        (if (refused? node)
+          node
+          (finish-taxonomy node (:value node) (symbol "subclasses"))))
+
+      (term/pair? args)
+      (let [node (km-unique-int state (term/car args))]
+        (if (refused? node)
+          node
+          (let [relation (km-unique-int node (term/car (term/cdr args)))]
+            (if (refused? relation)
+              relation
+              (finish-taxonomy relation (:value node) (:value relation))))))
+
+      :else
+      (-> (report-error state :user-error
+                        "Too many arguments to the taxonomy function! Format is (taxonomy <top-node> <relation-to-descend>)")
+          (assoc :value nil)))))
+
+(defn- keeping-kb-handler
+  [state pieces]
+  (loadkb/keeping-kb state (first pieces) km-int))
+
+(defn- checkpoint-id-handler
+  [state pieces]
+  (let [found (km-unique-int state (first pieces))]
+    (if (refused? found)
+      found
+      (loadkb/checkpoint-command found (:value found)))))
 
 (def ^:private op-symbol
   {"+" (symbol "+") "-" (symbol "-") "*" (symbol "*")
@@ -1829,7 +2136,7 @@
                         "Bad argument to (why ...)! Should be of form (why (:triple <f> <s> <v>))!")
           (assoc :value nil)))))
 
-(defn- leaf-text
+(defn- subgoal-text
   [state triple situation]
   (let [found (frame/explanations-for (:kb state)
                                       (kb/arg1 triple)
@@ -1850,6 +2157,51 @@
              (apply str head "\n" (map #(str "  " (print/km-format %) "\n") rules))
              (str head " (unrecorded!)"))}))
 
+(defn- phrase-of
+  "expand-text, then make-phrase, which expands again.
+
+  A not-ported lookup is returned as the state."
+  [state item]
+  (let [expanded (anglify/expand-text state item km-int :unique km-unique-int)]
+    (cond
+      (refused? expanded) {:state expanded :text nil}
+      (refused? (:state expanded)) {:state (:state expanded) :text nil}
+      :else
+      (let [phrased (anglify/make-phrase (:state expanded) (:value expanded)
+                                         km-int :unique km-unique-int)]
+        (if (refused? (:state phrased))
+          {:state (:state phrased) :text nil}
+          {:state (:state phrased) :text (:text phrased)})))))
+
+(defn- english-leaf
+  "One sentence for a leaf. Source classes are not ported, so the
+  sentence names this triple and omits the (from ...) suffix."
+  [state triple]
+  (let [instance (phrase-of state (kb/arg1 triple))]
+    (if (refused? (:state instance))
+      {:state (:state instance) :text nil}
+      (let [value (phrase-of (:state instance) (kb/arg3 triple))]
+        {:state (:state value)
+         :text (str "The " (print/km-format (kb/arg2 triple))
+                    " of " (:text instance)
+                    " = " (:text value) ".")}))))
+
+(defn- leaf-text
+  "The line (justify) prints for one triple.
+
+  developer-mode prints the KM rule. justify-leaves, when that mode is
+  off and the slot is not instance-of, prints one English sentence.
+  Otherwise the KM rule is printed, which is the step 11 text."
+  [state triple situation]
+  (let [developer? (get-in state [:kb :runtime :developer-mode?] false)
+        justify? (get-in state [:kb :runtime :justify-leaves?] false)
+        slot (kb/arg2 triple)]
+    (if (and (not developer?)
+             justify?
+             (not (utils/eql? slot (symbol "instance-of"))))
+      (english-leaf state triple)
+      (subgoal-text state triple situation))))
+
 (defn- lines-for-triples
   [state triples situation depth]
   (if (> depth 20)
@@ -1867,10 +2219,12 @@
         (recur (term/cdr triples) seen state lines)
         :else
         (let [leaf (leaf-text state (term/car triples) situation)]
-          (recur (term/cdr triples)
-                 (conj seen (term/car triples))
-                 (:state leaf)
-                 (conj lines (:text leaf))))))))
+          (if (refused? (:state leaf))
+            {:state (:state leaf) :lines []}
+            (recur (term/cdr triples)
+                   (conj seen (term/car triples))
+                   (:state leaf)
+                   (conj lines (:text leaf)))))))))
 
 (defn- compute-triples
   "The triples a justification explains. A side-effect sentence is on :text."
@@ -1993,6 +2347,96 @@
                       (utils/elements explained))]
     (assoc state :value (term/km-list (symbol "t")))))
 
+(defn- do-plan-handler
+  [state pieces]
+  (let [found (km-unique-int state (first pieces))]
+    (if (refused? found)
+      found
+      (sadl/do-plan found (:value found) km-int km-unique-int))))
+
+(defn- splice-present
+  [acc values]
+  (loop [values values
+         acc acc]
+    (cond
+      (nil? values) acc
+      (not (term/cons? values)) acc
+      (nil? (term/car values)) (recur (term/cdr values) acc)
+      :else (recur (term/cdr values) (conj acc (term/car values))))))
+
+(defn- evaluate-one
+  "One result of evaluate. f and F contribute nothing. A quote is run.
+
+  Anything else records the Lisp sentence and contributes nothing."
+  [state quoted fail-mode]
+  (cond
+    (or (utils/eql? quoted (symbol "f"))
+        (utils/eql? quoted (symbol "F")))
+    {:state state :extra []}
+
+    (utils/quote? quoted)
+    (let [ran (km-int state (term/car (term/cdr quoted)) :fail-mode fail-mode)]
+      (if (refused? ran)
+        ran
+        {:state ran :extra (splice-present [] (:value ran))}))
+
+    :else
+    {:state (report-error state :user-error
+                          "(evaluate %s)%nevaluate should be given a quoted expression to evaluate!"
+                          (print/km-format quoted))
+     :extra []}))
+
+(defn- evaluate-handler
+  [state pieces]
+  (let [fail-mode (:fail-mode state)
+        quoted (km-int state (first pieces)
+                       :fail-mode fail-mode
+                       :target (:target state)
+                       :rewrite? true)]
+    (if (refused? quoted)
+      quoted
+      (loop [items (:value quoted)
+             state quoted
+             acc []]
+        (cond
+          (nil? items) (assoc state :value (term/build-list acc nil))
+          (not (term/cons? items)) (assoc state :value (term/build-list acc nil))
+          :else
+          (let [step (evaluate-one state (term/car items) fail-mode)]
+            (if (refused? step)
+              step
+              (recur (term/cdr items) (:state step) (into acc (:extra step))))))))))
+
+(defn- profile-report-command
+  [state n]
+  (if (and (some? n) (not (number? n)))
+    (-> (report-error state :user-error
+                      "profile-report expected a number, and got %s."
+                      (print/km-format n))
+        (assoc :value nil))
+    (-> state
+        (update :text #(str % (stats/profile-report-text (:kb state)
+                                                         (if (number? n) (long n) 100))))
+        (assoc :value (term/km-list (symbol "t"))))))
+
+(defn- profile-handler
+  "Profile the nested expression only.
+
+  The outer (profile ...) goal is entered before this flag is set, and
+  it is left after the flag is cleared, so that goal is not in the table.
+  The answer is the nested answer. The table is printed on :text."
+  [state pieces]
+  (let [state (-> state
+                  (assoc-in [:query :profiling?] true)
+                  (update :kb stats/profile-reset))
+        ran (km-int state (first pieces))]
+    (if (refused? ran)
+      (assoc-in ran [:query :profiling?] false)
+      (-> ran
+          (update :text #(str % (print/km-format (:value ran)) "\n"
+                              (stats/profile-report-text (:kb ran) 100)))
+          (assoc-in [:query :profiling?] false)))))
+
 (def ^:private handlers
   (into
    [(entry ["the" "?slot" "of" "?frameadd"] the-handler)
@@ -2048,38 +2492,38 @@
     (entry ["?x" "=" "?y"] (set-equal-handler false))
     (entry ["?x" "/=" "?y"] (set-equal-handler true))
     (later ["the" "?class" "?slot" "of" "?frameadd"])
-    (later ["in-theory" "?theory-expr"])
-    (later ["in-theory" "?theory-expr" "?km-expr"])
-    (later ["hide-theory" "?theory-expr"])
-    (later ["see-theory" "?theory-expr"])
-    (later ["end-theory"])
-    (later ["visible-theories"])
-    (later ["in-situation" "?situation-expr"])
-    (later ["in-situation" "?situation" ["the" "?slot" "of" "?frame"]])
-    (later ["in-situation" "?situation-expr" "?km-expr"])
-    (later ["end-situation"])
-    (later ["global-situation"])
-    (later ["new-situation"])
-    (later ["do" "?action-expr"])
-    (later ["do" "?action-expr" "?next-situation"])
-    (later ["do-and-next" "?action-expr"])
-    (later ["do-and-next" "?action-expr" "?next-situation"])
-    (later ["try-do" "?action-expr"])
-    (later ["try-do" "?action-expr" "?next-situation"])
-    (later ["try-do-and-next" "?action-expr"])
-    (later ["try-do-and-next" "?action-expr" "?next-situation"])
-    (later ["do-concurrently" "?action-expr"])
-    (later ["do-concurrently" "?action-expr" "?next-situation"])
-    (later ["do-concurrently-and-next" "?action-expr"])
-    (later ["do-concurrently-and-next" "?action-expr" "?next-situation"])
+    (entry ["in-theory" "?theory-expr"] in-theory-handler)
+    (entry ["in-theory" "?theory-expr" "?km-expr"] in-theory-body-handler)
+    (entry ["hide-theory" "?theory-expr"] hide-theory-handler)
+    (entry ["see-theory" "?theory-expr"] see-theory-handler)
+    (entry ["end-theory"] end-situation-handler)
+    (entry ["visible-theories"] visible-theories-handler)
+    (entry ["in-situation" "?situation-expr"] in-situation-handler)
+    (entry ["in-situation" "?situation" ["the" "?slot" "of" "?frame"]] in-situation-fast-handler)
+    (entry ["in-situation" "?situation-expr" "?km-expr"] in-situation-body-handler)
+    (entry ["end-situation"] end-situation-handler)
+    (entry ["global-situation"] end-situation-handler)
+    (entry ["new-situation"] new-situation-handler)
+    (entry ["do" "?action-expr"] do-handler)
+    (entry ["do" "?action-expr" "?next-situation"] do-next-handler)
+    (entry ["do-and-next" "?action-expr"] do-and-next-handler)
+    (entry ["do-and-next" "?action-expr" "?next-situation"] do-and-next-at-handler)
+    (entry ["try-do" "?action-expr"] try-do-handler)
+    (entry ["try-do" "?action-expr" "?next-situation"] try-do-at-handler)
+    (entry ["try-do-and-next" "?action-expr"] try-do-and-next-handler)
+    (entry ["try-do-and-next" "?action-expr" "?next-situation"] try-do-and-next-at-handler)
+    (entry ["do-concurrently" "?action-expr"] do-concurrently-handler)
+    (entry ["do-concurrently" "?action-expr" "?next-situation"] do-concurrently-at-handler)
+    (entry ["do-concurrently-and-next" "?action-expr"] do-concurrently-and-next-handler)
+    (entry ["do-concurrently-and-next" "?action-expr" "?next-situation"] do-concurrently-and-next-at-handler)
     (later ["do-script" "?script"])
-    (later ["do-plan" "?plan-instance-expr"])
+    (entry ["do-plan" "?plan-instance-expr"] do-plan-handler)
     (entry ["assert" "?triple-expr"] assert-handler)
     (later ["is-true" "?triple-expr"])
     (later ["all-true" "?triples-expr"])
     (later ["some-true" "?triples-expr"])
-    (later ["next-situation"])
-    (later ["curr-situation"])
+    (entry ["next-situation"] next-situation-handler)
+    (entry ["curr-situation"] curr-situation-handler)
     (later ["ignore-result" "?expr"])
     (later ["ignore" "?expr"])
     (later ["in-every-situation" "?situation-class" "?expr"])
@@ -2214,26 +2658,28 @@
     (entry ["quote" "?expr"] quote-handler)
     (entry ["unquote" "?expr"] unquote-handler)
     (entry ["delete" "?km-expr"] delete-handler)
-    (later ["evaluate" "?expr"])
+    (entry ["evaluate" "?expr"] evaluate-handler)
     (later ["exists" "?frame"])
     (later ["has-value" "?frame"])
     (later ["print" "?expr"])
     (later ["format" "?flag" "?string" "&rest"])
     (later ["km-format" "?flag" "?string" "&rest"])
-    (later ["andify" "?expr"])
-    (later ["make-sentence" "?expr"])
-    (later ["make-phrase" "?expr"])
-    (later ["pluralize" "?expr"])
-    (later ["spy" "?expr"])
-    (later ["spy"])
-    (later ["unspy"])
-    (later ["profile" "?expr"])
-    (later ["profile-report"])
-    (later ["profile-report" "?n"])
-    (later ["taxonomy" "&rest"])
-    (later ["checkpoint"])
-    (later ["checkpoint" "?checkpoint-id"])
-    (later ["undo"])
+    (entry ["andify" "?expr"] andify-command)
+    (entry ["make-sentence" "?expr"] #(sentence-command %1 %2 true "."))
+    (entry ["make-phrase" "?expr"] #(sentence-command %1 %2 false ""))
+    (entry ["pluralize" "?expr"] pluralize-command)
+    (entry ["spy" "?expr"] #(trace/spy-command %1 (first %2)))
+    (entry ["spy"] (fn [state _] (trace/spy-command state nil)))
+    (entry ["unspy"] (fn [state _] (trace/unspy-command state)))
+    (entry ["profile" "?expr"] profile-handler)
+    (entry ["profile-report"] (fn [state _] (profile-report-command state nil)))
+    (entry ["profile-report" "?n"] #(profile-report-command %1 (first %2)))
+    (entry ["taxonomy" "&rest"] taxonomy-command)
+    (entry ["keeping-kb" "&rest"] keeping-kb-handler)
+    (entry ["checkpoint"] (fn [state _]
+                            (loadkb/checkpoint-command state (symbol "t"))))
+    (entry ["checkpoint" "?checkpoint-id"] checkpoint-id-handler)
+    (entry ["undo"] (fn [state _] (loadkb/undo-command state nil)))
     (later ["an" "instance" "of" "?expr"])
     (later ["an" "instance" "of" "?expr" "with" "&rest"])
     (later ["reverse" "?seq-expr"])
@@ -2304,12 +2750,40 @@
                               commented)
       state)))
 
+(defn- trace-exit
+  "The exit or fail line for one km1 result.
+
+  Fail is only a nil answer of a boolean expression. Any other nil
+  answer is an exit whose value prints as nil."
+  [state expr commented target]
+  (let [fail? (and (nil? (:value state)) (kb/km-boolean? expr))]
+    (trace/km-trace state
+                    (if fail? :fail :exit)
+                    (cond
+                      (and target fail?) "<- FAIL!~40T [~a, for ~a]"
+                      fail? "<- FAIL!~40T [~a]"
+                      target "<- ~a~40T [~a, for ~a]"
+                      :else "<- ~a~40T [~a]")
+                    (cond
+                      (and target fail?) [commented target]
+                      fail? [commented]
+                      target [(:value state) commented target]
+                      :else [(:value state) commented]))))
+
 (defn- km1
   [state expr commented fail-mode target rewrite?]
   (let [state (-> state
                   (update-in [:query :depth] (fnil inc 0))
                   (update-in [:query :query-directed-inferences] (fnil inc 0))
                   (assoc :fail-mode fail-mode :target target :current-expr commented))
+        state (stats/maybe-spot state)
+        profile-key (explain/desource expr)
+        state (stats/profile-call state profile-key)
+        state (trace/km-trace state :call
+                              (if (some? target)
+                                "-> ~a~40T [for ~a]"
+                                "-> ~a")
+                              (if (some? target) [commented target] [commented]))
         dispatched (if (utils/lisp-atom? expr)
                      (assoc state :value (term/km-list expr))
                      (dispatch state expr))
@@ -2318,7 +2792,9 @@
                    (finish dispatched commented fail-mode))
         recorded (if (refused? finished)
                    finished
-                   (record-km1-result finished expr commented rewrite?))]
+                   (record-km1-result finished expr commented rewrite?))
+        recorded (stats/profile-exit recorded profile-key)
+        recorded (trace-exit recorded expr commented target)]
     (update-in recorded [:query :depth] (fnil dec 0))))
 
 (defn km-int
@@ -2336,7 +2812,8 @@
         cleaned (strip-comments expr)
         state (-> state
                   (assoc :current-expr commented :fail-mode fail-mode :target target)
-                  (note-constraints cleaned))]
+                  (note-constraints cleaned)
+                  (trace/check-spy cleaned))]
     (or (command state cleaned fail-mode)
         (early state commented cleaned fail-mode check-for-looping)
         (let [pushed (stack/push-to-goal-stack (:kb state) (:query state) commented
@@ -2375,17 +2852,28 @@
 (defn interpret
   "Evaluate one expression from the top level.
 
-  The query's goal stack, the instances being unified, both inference
-  counters, the depth, and the looping flag are cleared first. The
-  object stack and the knowledge base stay. fail-mode is the argument,
-  or the mode stored on the query, or :fail. :value is the answer list.
-  A form that is not ported yet has :error \"not-ported\". While a
-  prototype is open, this expression is recorded on it before it runs.
-  The expression that opens the prototype is recorded by that command."
-  [kb query expr & {:keys [fail-mode]}]
-  (let [query (reset-top query)
+  The query's goal stack, the instances being unified, the depth, the
+  trace depth, and the looping flag are cleared first. The counters are
+  cleared with them unless reset statistics is disabled. The object
+  stack stays. fail-mode is the argument, or the mode stored on the
+  query, or :fail. :value is the answer list. A form that is not ported
+  yet has :error \"not-ported\" and no statistics line. A form that ran
+  carries :statistics. While a prototype is open, this expression is
+  recorded on it before it runs. The expression that opens the prototype
+  is recorded by that command. reset-statistics? does this clear first.
+  It is true when the caller does not pass it. checkpoint? records this
+  expression on the undo log when logging is on, except for showme,
+  undo, and why. A load passes both as false by calling km-int directly."
+  [kb query expr & {:keys [fail-mode reset-statistics? checkpoint?]
+                    :or {reset-statistics? true checkpoint? true}}]
+  (let [prepared (if reset-statistics? (prepare-top kb query) {:kb kb :query query})
+        kb (:kb prepared)
+        query (:query prepared)
         fail-mode (or fail-mode (:top-level-fail-mode query) :fail)
         original expr
+        kb (if (and checkpoint? (not (loadkb/skip-checkpoint? original)))
+             (loadkb/set-checkpoint kb original)
+             kb)
         expr (if (showme-head? original) original (frame/dereference kb original))
         kb (if-let [root (frame/curr-prototype kb)]
              (frame/add-definition kb root original)
@@ -2404,7 +2892,8 @@
                      (throw thrown))))]
     (if (refused? result)
       result
-      (let [answered (update result :value explain/desource)
+      (let [answered (assoc (update result :value explain/desource)
+                            :statistics (stats/report (:kb result) (:query result)))
             matched (match/minimatch original (pat ["the" "?slot" "of" "?frameadd"]))]
         (if (term/cons? matched)
           (assoc-in answered [:query :last-answer] (:value answered))

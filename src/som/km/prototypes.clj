@@ -212,6 +212,7 @@
       (let [named (frame/create-instance-name (:kb state) parent
                                               :prefix prefix
                                               :query (:query state))
+            named (update named :query #(update % :skolems (fnil inc 0)))
             instance (:value named)
             stored (frame/add-slotsvals (:kb named) instance (with-class slotsvals parent)
                                         :bind-self? bind-self?

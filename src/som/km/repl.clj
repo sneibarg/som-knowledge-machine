@@ -9,10 +9,12 @@
   and keeps running.
 
   A line that is only the start of an expression is not answered yet.
-  The prompt keeps reading lines until the expression is complete."
+  The prompt keeps reading lines until the expression is complete.
+  A local situation is shown in brackets and a theory in braces."
   (:require [som.km.engine :as engine]
             [som.km.print :as print]
-            [som.km.read :as read])
+            [som.km.read :as read]
+            [som.km.situations :as situations])
   (:gen-class))
 
 (def prompt "KM> ")
@@ -43,13 +45,16 @@
 
   A successful result prints :text, when the command produced some, and
   then the answer in km-format. Nil prints as nil. Errors add the
-  warning on that same line. A refusal with no :text prints :message."
+  warning on that same line. When :statistics is present, it follows on
+  the next line. A refusal with no :text prints :message."
   [result]
   (if (or (:ok result) (some? (:text result)))
     (str (:text result)
          (print/km-format (:value result))
          (when (seq (:errors result))
-           "   ; (WARNING: Errors occurred during reasoning)"))
+           "   ; (WARNING: Errors occurred during reasoning)")
+         (when (some? (:statistics result))
+           (str "\n" (:statistics result))))
     (:message result)))
 
 (defn- evaluate-in
@@ -113,7 +118,7 @@
   (flush)
   (let [session (session)]
     (loop []
-      (print prompt)
+      (print (situations/prompt-text (:kb @session)))
       (flush)
       (when-let [line (read-line)]
         (if (leave-command? line)

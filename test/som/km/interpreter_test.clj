@@ -162,9 +162,14 @@
   (is (= "not-ported" (:error (answer "(eval (1 + 2))"))))
   (is (re-find #"setq is not evaluated" (:message (answer "(setq x 1)"))))
   (is (re-find #"function is not evaluated" (:message (answer "(function foo)"))))
-  (is (re-find #"Tracing is not ported yet" (:message (answer "(trace)"))))
+  (let [traced (answer "(trace)")]
+    (is (= (term "(t)") (:value traced)))
+    (is (str/includes? (:text traced) "(Tracing of KM switched on)")))
   (is (re-find #"Embedded Lisp is refused" (:message (answer "(Trace)"))))
-  (is (re-find #"not ported yet" (:message (answer "(load-kb \"x\")"))))
+  (let [missing (answer "(load-kb \"x\")")]
+    (is (:ok missing))
+    (is (nil? (:value missing)))
+    (is (some #(re-find #"No such file" %) (:errors missing))))
   (is (re-find #"fastsave stays unported" (:message (answer "(fastsave-kb \"x\")")))))
 
 (deftest a-depth-limit-stops-the-inner-sum

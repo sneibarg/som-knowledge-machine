@@ -9,11 +9,12 @@
   (slot (value ...)). In *Global the facet name is the facet. In
   another situation the name is the concatenation curr-situation-facet
   builds, cached on the knowledge base. A non-fluent slot is stored
-  in *Global. put-vals stores a fact about a prototype participant
-  in *Global. Explanations are stored on the frame, oldest first.
-  In *Global the property is explanation. In another situation the
-  name is explanation joined to the situation name. A theory is not
-  recognized yet. reset rebuilds the built-in vocabulary.
+  in *Global unless the current situation is a theory. A universal
+  slot is stored in *Global either way. put-vals stores a fact about
+  a prototype participant in *Global. Explanations are stored on the
+  frame, oldest first. In *Global the property is explanation. In
+  another situation the name is explanation joined to the situation
+  name. reset rebuilds the built-in vocabulary.
 
   The object stack is recorded on the query. Storage does not read it.
   The goal stack is also on the query. reset clears both.
@@ -188,7 +189,34 @@
    :record-explanations-for-clones? true
    :add-cloned-from-links? true
    :propagate-explanations? true
-   :dereference-explanations-during-cloning? true})
+   :dereference-explanations-during-cloning? true
+   :logging? false
+   :logging-creations? false
+   :internal-logging? false
+   :slot-checking-enabled? false
+   :verbose-number-to-text? false
+   :output-precision 3
+   :default-km-behavior-for-expand-text? true
+   :justify-leaves? false
+   :developer-mode? false
+   :trace? false
+   :interactive-trace? false
+   :suspended-trace nil
+   :trace-classify? false
+   :trace-unify? false
+   :trace-subsumes? false
+   :trace-constraints? false
+   :trace-other-situations? false
+   :trace-to-file? false
+   :trace-file "%trace.km"
+   :show-comments? true
+   :spypoints []
+   :reset-statistics-enabled? true
+   :inference-report-frequency nil
+   :profile-cpu {}
+   :profile-entries {}
+   :profile-starts {}
+   :kb-accesses 0})
 
 (def ^:private are-some-flags
   {:definitions :are-some-definitions?
@@ -279,7 +307,8 @@
   installed. The object stack is not active. t is not recorded on that
   stack. The built-in vocabulary is not installed yet: reset does that.
   The default fluent status is *Fluent, and the optimization flags are
-  clear."
+  clear. Logging and creation logging start off. Slot checking starts
+  off."
   []
   {:frames {}
    :frame-order []
@@ -382,19 +411,64 @@
         (assoc :situation situation)
         (update :situations remember-name situation))))
 
-(declare dereference fluent? universal-slot? obj-stack)
+(declare dereference fluent? universal-slot? obj-stack get-vals)
 
 (defn current-situation
   "The situation in force, after following a binding."
   [kb]
   (dereference kb (:situation kb)))
 
-(defn- theory-situation?
-  "Step 12 decides whether a situation is a theory.
+(defn theory-situation?
+  "True when situation is a theory.
 
-  Until then a non-fluent is stored in *Global."
-  [_kb _situation]
-  false)
+  An entered theory is on :theories. A situation whose instance-of in
+  *Global includes Theory is a theory too. The read passes *Global, so
+  this does not call target-situation and a non-fluent lookup cannot
+  recurse through this test."
+  [kb situation]
+  (or (some #(utils/eql? situation %) (:theories kb))
+      (and (kb/kb-object? situation)
+           (utils/member? (symbol "Theory")
+                          (:value (get-vals kb situation (symbol "instance-of")
+                                            :situation term/global-situation
+                                            :dereference? false))))))
+
+(defn situations-mode?
+  "True after a non-global situation has been entered.
+
+  The flag is sticky. reset builds a fresh runtime and turns it off.
+  Entering a theory does not turn it on."
+  [kb]
+  (boolean (:situations-mode? (:runtime kb))))
+
+(defn set-situations-mode
+  "Turn situations mode on. It is not turned off again."
+  [kb]
+  (assoc-in kb [:runtime :situations-mode?] true))
+
+(defn visible-theories
+  "Theories currently visible, newest first. Nil when none are."
+  [kb]
+  (:visible-theories (:runtime kb)))
+
+(defn set-visible-theories
+  "Replace the visible theories. Nil means none are visible."
+  [kb theories]
+  (assoc-in kb [:runtime :visible-theories] theories))
+
+(defn local-situation?
+  "True in a situation that is not *Global and not a theory."
+  [kb]
+  (let [situation (current-situation kb)]
+    (and (not (utils/eql? situation term/global-situation))
+         (not (theory-situation? kb situation)))))
+
+(defn local-theory?
+  "True when the current situation is a theory."
+  [kb]
+  (let [situation (current-situation kb)]
+    (and (not (utils/eql? situation term/global-situation))
+         (theory-situation? kb situation))))
 
 (defn- nonfluent-instances-class?
   "True when a value is Situation, Slot, Partition, or Theory.
@@ -412,10 +486,10 @@
 (defn target-situation
   "The situation a slot is stored in.
 
-  The global situation stays the global situation. A built-in non-fluent
-  slot is stored there, and so is any slot whose fluent status is
-  *Non-Fluent, unless a later step recognizes the situation as a theory.
-  vals is used only for instance-of:
+  The global situation stays the global situation. A universal slot is
+  stored there, including inside a theory. A non-universal non-fluent
+  is stored there too, unless the situation is a theory. vals is used
+  only for instance-of:
   an instance of Situation, Slot, Partition, or Theory is stored in
   *Global once instance-of itself is fluent. put-vals, get-vals, add-val,
   and delete-val call this without vals. add-slotsvals passes vals."
@@ -595,6 +669,18 @@
     (assoc-in kb [:frames frame :done]
               (drop-done-slot (get-in kb [:frames frame :done]) slot))))
 
+(defn reset-done
+  "Clear the done cache on every stored frame.
+
+  Seeing or hiding a theory changes answers that were already computed."
+  [kb]
+  (reduce (fn [kb frame]
+            (if (contains? (:frames kb) frame)
+              (update-in kb [:frames frame] dissoc :done)
+              kb))
+          kb
+          (:frame-order kb)))
+
 (defn deleted-frames
   "Frames delete-frame has removed, oldest first."
   [kb]
@@ -612,15 +698,32 @@
   [slot]
   (contains? built-in-slots slot))
 
+(defn built-in-concept-type
+  "The built-in kind of concept, or nil.
+
+  write-frame uses this label: \"single-valued slot\", \"multivalued
+  slot\", \"class\", or \"instance\"."
+  [concept]
+  (cond
+    (contains? built-in-single-valued concept) "single-valued slot"
+    (contains? built-in-multivalued concept) "multivalued slot"
+    (contains? built-in-classes concept) "class"
+    (contains? built-in-instances concept) "instance"))
+
 (defn- frame-record
   [kb frame]
   (get (:frames kb) frame))
 
 (defn- store-frame
   [kb frame record]
-  (let [known? (known-raw? kb frame)]
-    (cond-> (assoc-in kb [:frames frame] record)
-      (not known?) (update :frame-order conj frame))))
+  (let [known? (known-raw? kb frame)
+        stored (cond-> (assoc-in kb [:frames frame] record)
+                 (not known?) (update :frame-order conj frame))]
+    (if (and (not known?)
+             (kb/kb-object? frame)
+             (get-in stored [:runtime :logging-creations?]))
+      (assoc stored :creations (into [frame] (or (:creations stored) [])))
+      stored)))
 
 (def explanation-facet
   "The property explanations use in *Global. Another situation joins this name to the situation name."
@@ -993,8 +1096,9 @@
   (require-slot slot frame)
   (require-frame frame slot)
   (let [situation (chosen-situation kb situation frame slot)
-        found (read-vals kb frame slot facet situation dereference?)]
-    (result (:kb found) (:value found) query)))
+        found (read-vals kb frame slot facet situation dereference?)
+        kb (update-in (:kb found) [:runtime :kb-accesses] (fnil inc 0))]
+    (result kb (:value found) query)))
 
 (defn gets-vals
   "The values of one slot on several frames.
@@ -1318,6 +1422,17 @@
       (not (utils/eql? status fluent-status-non))
 
       :else false)))
+
+(defn ignore-slot-in-global?
+  "True when a fluent read in *Global is refused.
+
+  Situations mode is on, the current situation is *Global, and
+  prototype mode is off. A cached answer is returned before this test."
+  [kb slot]
+  (and (situations-mode? kb)
+       (utils/eql? (current-situation kb) term/global-situation)
+       (nil? (curr-prototype kb))
+       (fluent? kb slot)))
 
 (defn inertial-fluent?
   "True when a slot keeps its value until an action changes it.
@@ -2435,15 +2550,16 @@
 (defn delete-frame
   "Remove a known frame, its bindings, and its inverse links.
 
-  The name is followed first. An unknown frame is an error. Inverses are
-  taken off own-properties and own-definition in every situation and
-  theory, including a facet that has no values. The definition flag is
-  not consulted and is not set by storage. The name stays on the
-  situation and theory lists. It is recorded on the deleted list and
-  taken off the object stack. It is not uninterned. Other frames keep
-  bindings that point at it."
-  [kb frame0 & {:keys [delete-inverses? query] :or {delete-inverses? true query empty-query}}]
-  (let [frame (dereference kb frame0)]
+  The name is followed first, unless dereference? is false. An unknown
+  frame is an error. Inverses are taken off own-properties and
+  own-definition in every situation and theory, including a facet that
+  has no values. The definition flag is not consulted and is not set by
+  storage. The name stays on the situation and theory lists. It is
+  recorded on the deleted list and taken off the object stack. It is
+  not uninterned. Other frames keep bindings that point at it."
+  [kb frame0 & {:keys [delete-inverses? query dereference?]
+                :or {delete-inverses? true query empty-query dereference? true}}]
+  (let [frame (if dereference? (dereference kb frame0) frame0)]
     (if-not (known-frame? kb frame)
       (throw (ex-info (str frame " is not a known frame.") {:frame frame}))
       (let [cleared (if delete-inverses?

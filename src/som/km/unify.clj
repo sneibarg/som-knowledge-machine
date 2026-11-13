@@ -1722,7 +1722,8 @@
         (if-not (:ok trial)
           (fail-unify trial left right eagerly? classes-subsumep fail-mode)
           (let [bound (reduce apply-binding trial (or (:bindings trial) []))
-                written (write-slots bound (:value trial) (:slots trial))]
+                written (write-slots bound (:value trial) (:slots trial))
+                written (update-in written [:query :unifications] (fnil inc 0))]
             (succeed written (:value trial))))))))
 
 (declare probe)

@@ -12,6 +12,11 @@
 (defn- parse [response]
   (json/read-str (:body response) :key-fn keyword))
 
+(defn- without-statistics
+  "Drop the clock-bearing statistics line before a whole-body comparison."
+  [body]
+  (dissoc body :statistics))
+
 (deftest port-text
   (is (= 8080 (server/parse-port nil)))
   (is (= 0 (server/parse-port "0")))
@@ -33,7 +38,9 @@
                                   :body (body "  (1 + 2)  ")})]
     (is (= 200 (:status response)))
     (is (= [3] (:value (parse response))))
-    (is (= (server/client-body (engine/evaluate "  (1 + 2)  ")) (parse response)))))
+    (is (str/includes? (:statistics (parse response)) "inferences"))
+    (is (= (without-statistics (server/client-body (engine/evaluate "  (1 + 2)  ")))
+           (without-statistics (parse response))))))
 
 (deftest a-creation-form-is-not-ported
   (let [response (server/handler {:request-method :post
@@ -55,8 +62,10 @@
                                :body (body "(2 ^ 100)")})]
     (is (= [{:ratio "1/2"}] (:value (parse ratio))))
     (is (= ["1267650600228229401496703205376"] (:value (parse power))))
-    (is (= (server/client-body (engine/evaluate "(1 / 2)")) (parse ratio)))
-    (is (= (server/client-body (engine/evaluate "(2 ^ 100)")) (parse power)))))
+    (is (= (without-statistics (server/client-body (engine/evaluate "(1 / 2)")))
+           (without-statistics (parse ratio))))
+    (is (= (without-statistics (server/client-body (engine/evaluate "(2 ^ 100)")))
+           (without-statistics (parse power))))))
 
 (deftest a-broken-expression-is-a-bad-request
   (let [response (server/handler {:request-method :post
@@ -81,7 +90,8 @@
                                   :body (body "q")})]
     (is (= 200 (:status response)))
     (is (= [{:symbol "q"}] (:value (parse response))))
-    (is (= (server/client-body (engine/evaluate "q")) (parse response)))))
+    (is (= (without-statistics (server/client-body (engine/evaluate "q")))
+           (without-statistics (parse response))))))
 
 (deftest json-is-not-a-query-body
   (let [response (server/handler {:request-method :post
@@ -134,6 +144,18 @@
         (is (nil? (:value apart)))
         (is (not (contains? (:body seen) :kb)))
         (is (not (contains? (:body seen) :query)))
+        (let [written (post base "(write-kb)")
+              fast (post base "(fastsave-kb \"x.fkm\")")]
+          (is (= 200 (:status written)))
+          (is (str/includes? (str (:text (:body written))) "(Fred has"))
+          (is (= 501 (:status fast)))
+          (is (= "not-ported" (:error (:body fast)))))
+        (let [phrase (post base "(make-phrase (:seq \"a\" \"cat\"))")
+              tree (post base "(taxonomy)")]
+          (is (= 200 (:status phrase)))
+          (is (= ["a cat"] (:value (:body phrase))))
+          (is (= 200 (:status tree)))
+          (is (str/includes? (str (:text (:body tree))) "Thing")))
         (let [same (post base "(1 & 1)")
               classified (post base "(_Cat1 has (instance-of (Cat)))")
               colored (post base "(_Cat1 has (color (red)))")
@@ -161,7 +183,9 @@
                   furred (post base (str "(" pname " has (fur (brown)))"))
                   closed (post base "(end-prototype)")
                   dog (post base "(_Dog1 has (instance-of (Dog)))")
-                  fur (post base "(the fur of _Dog1)")]
+                  fur (post base "(the fur of _Dog1)")
+                  sit (post base "(new-situation)")
+                  back (post base "(global-situation)")]
               (is (= 200 (:status because)))
               (is (= [{:symbol "t"}] (:value (:body because))))
               (is (str/includes? (str (:text (:body because)))
@@ -174,6 +198,15 @@
               (is (= [{:symbol "t"}] (:value (:body closed))))
               (is (= 200 (:status dog)))
               (is (= 200 (:status fur)))
-              (is (= [{:symbol "brown"}] (:value (:body fur))))))))
+              (is (= [{:symbol "brown"}] (:value (:body fur))))
+              (is (= 200 (:status sit)))
+              (is (str/starts-with? (-> sit :body :value first :symbol) "_Situation"))
+              (is (= 200 (:status back)))
+              (is (= [{:symbol "*Global"}] (:value (:body back))))))))
+      (let [lic (post base "(license)")]
+        (is (= 200 (:status lic)))
+        (is (nil? (:value (:body lic))))
+        (is (str/includes? (str (:text (:body lic))) "Simplified BSD"))
+        (is (str/includes? (str (:text (:body lic))) "peterc@allenai.org")))
       (finally
         (server/stop http)))))
