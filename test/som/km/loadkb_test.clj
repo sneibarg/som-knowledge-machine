@@ -206,6 +206,21 @@
       (is (= (term-of "(black)") (:value again)))
       (is (str/includes? (:text why) "(every Cat has (color (black)))")))))
 
+(deftest a-situation-local-explanation-reloads-into-that-situation
+  (with-temp path
+    (let [sit (answer "(new-situation)")
+          place (term/car (:value sit))
+          marked (on sit "(explanation (:triple Fred color red) ((added-at Cat \"local\")))")
+          saved (on marked (str "(save-kb \"" (slash path) "\")"))
+          written (slurp path :encoding "UTF-8")
+          loaded (on saved (str "(reload-kb \"" (slash path) "\")"))
+          local (frame/explanations (:kb loaded) (symbol "Fred") :situation place)
+          global (frame/explanations (:kb loaded) (symbol "Fred"))]
+      (is (str/includes? written "(in-situation "))
+      (is (str/includes? written "added-at"))
+      (is (some? local))
+      (is (nil? global)))))
+
 (deftest store-kb-and-restore-kb-return-to-the-saved-value
   (let [stored (answer "(store-kb)")
         changed (on stored "(Fred has (color (red)))")

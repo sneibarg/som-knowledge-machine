@@ -12,7 +12,7 @@
   in *Global unless the current situation is a theory. A universal
   slot is stored in *Global either way. put-vals stores a fact about
   a prototype participant in *Global. Explanations are stored on the
-  frame, oldest first. In *Global the property is explanation. In
+  frame, newest first. In *Global the property is explanation. In
   another situation the name is explanation joined to the situation
   name. reset rebuilds the built-in vocabulary.
 
@@ -742,12 +742,11 @@
     (if (vector? stored) stored [])))
 
 (defn explanations
-  "The explanation records on frame in situation, oldest first.
+  "The explanation records on frame in situation, newest first.
 
   Each record is (instance slot value explanation). The default
   situation is *Global. A frame with none answers nil. Another
-  situation is a separate property and is not included here. The Lisp
-  keeps the newest record first."
+  situation is a separate property and is not included here."
   [kb frame & {:keys [situation] :or {situation term/global-situation}}]
   (let [named (explanation-property kb situation)]
     (term/build-list (explanation-vector (frame-record (:kb named) frame)
@@ -757,14 +756,15 @@
 (declare protoinstance?)
 
 (defn record-explanation
-  "Append one explanation record when it is not already stored.
+  "Store one explanation record when it is not already stored.
 
-  The record is (instance slot value explanation). A duplicate under
-  equal? is left as it is. The frame's facets and done list stay.
-  A fluent slot uses situation. A non-fluent slot uses *Global. A fact
-  about a prototype participant uses *Global. The Lisp keeps the newest
-  record first. This appends, so the oldest stays first."
-  [kb frame entry & {:keys [situation]}]
+  The record is (instance slot value explanation). The newest record is
+  placed first. A duplicate under equal? is left where it is. front?
+  false appends, which a copy of a list that is already newest first
+  uses so that copy does not reverse. The frame's facets and done list
+  stay. A fluent slot uses situation. A non-fluent slot uses *Global.
+  A fact about a prototype participant uses *Global."
+  [kb frame entry & {:keys [situation front?] :or {front? true}}]
   (let [slot (nth-value entry 1)
         situation (or situation (current-situation kb))
         situation (if (and (protoinstance? kb frame)
@@ -783,7 +783,44 @@
       kb
       (store-frame kb frame
                    (assoc-in record [:explanations property]
-                             (conj existing entry))))))
+                             (if front?
+                               (into [entry] existing)
+                               (conj existing entry)))))))
+
+(defn comment-data
+  "The list stored by (comment tag ...), or nil when tag has none."
+  [kb tag]
+  (get-in kb [:comments tag]))
+
+(defn comment-tags
+  "Comment tags stored by (comment ...), in the order they were first stored."
+  [kb]
+  (vec (or (:comment-order kb) [])))
+
+(defn store-comment
+  "Store data on tag and remember tag so a save can write the comments section.
+
+  A tag stored again keeps its place and replaces the list. data is the
+  list of values that followed the tag."
+  [kb tag data]
+  (let [order (comment-tags kb)]
+    (-> kb
+        (assoc-in [:comments tag] data)
+        (assoc :comment-order
+               (if (some #(utils/equal? % tag) order)
+                 order
+                 (conj order tag))))))
+
+(declare bind-self)
+
+(defn bound-comment
+  "The comment list for an internal (comm tag self), with Self replaced.
+
+  A tag that is not an internal comment answers nil. This is get-comment."
+  [kb tag]
+  (when (explain/internal-comment? tag)
+    (bind-self (comment-data kb (nth-value tag 1))
+               (nth-value tag 2))))
 
 (defn defined-prototypes
   "Prototypes registered on class, in the order they were stored.
@@ -907,7 +944,7 @@
     (store-frame kb frame (assoc record :facets {}))
     kb))
 
-(declare merge-explanations)
+(declare merge-explanations delete-val bind-self)
 
 (defn km-bind
   "Bind the dereferenced frame1 to the dereferenced frame2.
@@ -1529,6 +1566,15 @@
   *valset-subsumes*
   nil)
 
+(def ^{:dynamic true
+       :doc "The subclass test merge-explanations uses when a triple may have vanished.
+
+  Nil skips that drop. som.km.taxonomy installs is-subclass-of? at load
+  time. The var lives here so the frame store does not require that
+  namespace."}
+  *is-subclass-of*
+  nil)
+
 (defn- store-refused?
   [state]
   (= "not-ported" (:error state)))
@@ -1948,12 +1994,12 @@
 (defn explanation-records
   "Every explanation record for instance and slot. This is get-all-explanations.
 
-  Each record is (instance slot value explanation), oldest first. The
-  situation's own records come first, then the records in *Global.
-  A repeated record keeps the earlier copy, in its original position.
-  remove-clone-cycles is not run. slot may be nil, and then the current
-  situation is the one read. An instance that is not a knowledge-base
-  object has no records."
+  Each record is (instance slot value explanation). Within one property
+  the newest record is first. The situation's own records come first,
+  then the records in *Global. A repeated record keeps the earlier copy,
+  in its original position. remove-clone-cycles is not run. slot may be
+  nil, and then the current situation is the one read. An instance that
+  is not a knowledge-base object has no records."
   [kb instance slot & {:keys [situation]}]
   (let [instance (if (kb/kb-object? instance) (dereference kb instance) instance)]
     (if-not (kb/kb-object? instance)
@@ -2036,16 +2082,19 @@
   "Store one explanation for (the slot of instance).
 
   target is that path. expr is the explanation. A duplicate is left as
-  it is. A :set is not stored. A remove-subsumers or remove-subsumees
-  slot whose value is not actually stored is left unrecorded, unless
-  force? is set. An existential explanation also records the value's
+  it is. modify-set-explanation runs first. A result that is still a
+  :set is not stored. A collapse to one expression is stored when that
+  expression is a list. A remove-subsumers or remove-subsumees slot
+  whose value is not actually stored is left unrecorded, unless force?
+  is set. An existential explanation also records the value's
   instance-of when that class is already stored. :program-error is set
   when a :set still holds something that is not a term."
   [kb target val expr & {:keys [situation force?]}]
   (let [slot (nth-value target 1)
         instance (nth-value target 3)
         flag (explanations-flag kb)
-        expr (explain/desource-all-but-top-level expr)]
+        expr (explain/desource-all-but-top-level
+              (explain/modify-set-explanation expr))]
     (cond
       (not (should-record-expr? kb expr)) {:kb kb}
       (and (slot-list? flag)
@@ -2085,39 +2134,192 @@
   [kb]
   (into [] (concat (:situations kb) (:theories kb))))
 
+(defn- subclass-of?
+  "The installed subclass test, or no relation when that hook is unset."
+  [kb class target]
+  (if (fn? *is-subclass-of*)
+    (*is-subclass-of* kb class target)
+    {:kb kb :value nil}))
+
+(defn- any-subclass?
+  "True when some class is a subclass of target."
+  [kb classes target]
+  (loop [classes classes
+         kb kb]
+    (cond
+      (or (nil? classes) (not (term/cons? classes))) {:kb kb :hit false}
+      :else
+      (let [under (subclass-of? kb (term/car classes) target)]
+        (if (some? (:value under))
+          {:kb (:kb under) :hit true}
+          (recur (term/cdr classes) (:kb under)))))))
+
+(defn- vanished-explanation?
+  "True when a built-in remove-subsumers or remove-subsumees triple will disappear.
+
+  This check runs only in *Global. A user slot with the same flag is
+  left in place. The dominant frame is the more specific name."
+  [kb dominant record]
+  (let [slot (nth-value record 1)
+        val (nth-value record 2)]
+    (cond
+      (contains? remove-subsumer-slots slot)
+      (let [found (get-vals kb dominant slot :dereference? false)
+            hit (any-subclass? (:kb found) (:value found) val)]
+        {:kb (:kb hit) :drop (:hit hit)})
+
+      (contains? remove-subsumee-slots slot)
+      (let [found (get-vals kb dominant slot :dereference? false)]
+        (loop [classes (:value found)
+               kb (:kb found)]
+          (cond
+            (or (nil? classes) (not (term/cons? classes))) {:kb kb :drop false}
+            :else
+            (let [under (subclass-of? kb val (term/car classes))]
+              (if (some? (:value under))
+                {:kb (:kb under) :drop true}
+                (recur (term/cdr classes) (:kb under)))))))
+
+      :else {:kb kb :drop false})))
+
+(defn- drop-vanished-inverse
+  "Delete recessive from the inverse of a triple that is being dropped.
+
+  uninstall-inverses stays off. The forward slot is left for the binding."
+  [kb recessive slot val]
+  (let [inverse (invert-slot kb slot)
+        found (get-vals kb val inverse :dereference? false
+                        :situation term/global-situation)]
+    (if (utils/member? recessive (:value found))
+      (:kb (delete-val (:kb found) val inverse recessive
+                       :uninstall-inverses? false
+                       :situation term/global-situation))
+      (:kb found))))
+
+(defn- kept-recessive-records
+  "Recessive records that are not already on dominant.
+
+  In *Global a built-in remove-subsumers or remove-subsumees record is
+  also dropped when the value it supports will disappear, and the
+  inverse link back to recessive is removed."
+  [kb recessive dominant situation lost kept]
+  (loop [records lost
+         kb kb
+         acc []]
+    (cond
+      (or (nil? records) (not (term/cons? records)))
+      {:kb kb :records (term/build-list acc nil)}
+
+      (utils/member? (term/car records) kept utils/equal?)
+      (recur (term/cdr records) kb acc)
+
+      (not (utils/eql? situation term/global-situation))
+      (recur (term/cdr records) kb (conj acc (term/car records)))
+
+      :else
+      (let [gone (vanished-explanation? kb dominant (term/car records))]
+        (if (:drop gone)
+          (let [record (term/car records)]
+            (recur (term/cdr records)
+                   (drop-vanished-inverse (:kb gone) recessive
+                                          (nth-value record 1)
+                                          (nth-value record 2))
+                   acc))
+          (recur (term/cdr records) (:kb gone) (conj acc (term/car records))))))))
+
 (defn merge-explanations
   "Copy recessive's explanation records onto dominant.
 
-  A record already stored on dominant stays where it is. The recessive
-  frame keeps its records too. The Lisp drops a remove-subsumers record
-  whose triple disappeared. That drop is not done here. The bound frame
-  is left in place."
+  A record already stored on dominant stays where it is. In *Global a
+  built-in remove-subsumers or remove-subsumees record is dropped when
+  a class now stored on dominant makes that value disappear, and the
+  inverse link from that value back to recessive is removed. The
+  recessive frame keeps its own records. The bound frame is left in
+  place."
   [kb recessive dominant]
   (if-not (and (kb/kb-object? recessive) (kb/kb-object? dominant))
     kb
     (reduce (fn [kb situation]
               (let [lost (explanation-records kb recessive nil :situation situation)
                     kept (explanation-records (:kb lost) dominant nil :situation situation)
-                    novel (loop [records (:value lost)
-                                 acc []]
-                            (cond
-                              (nil? records) (term/build-list acc nil)
-                              (not (term/cons? records)) (term/build-list acc nil)
-                              (utils/member? (term/car records) (:value kept) utils/equal?)
-                              (recur (term/cdr records) acc)
-                              :else (recur (term/cdr records)
-                                           (conj acc (term/car records)))))]
-                (loop [records novel
-                       kb (:kb kept)]
+                    novel (kept-recessive-records (:kb kept) recessive dominant situation
+                                                  (:value lost) (:value kept))]
+                (loop [records (:records novel)
+                       kb (:kb novel)]
                   (cond
-                    (nil? records) kb
-                    (not (term/cons? records)) kb
+                    (or (nil? records) (not (term/cons? records))) kb
                     :else
                     (recur (term/cdr records)
                            (record-explanation kb dominant (term/car records)
-                                               :situation situation))))))
+                                               :situation situation
+                                               :front? false))))))
             kb
             (situations-touched kb))))
+
+(defn originated-from-classes
+  "The classes expr came from. This is originated-from-classes.
+
+  cloned-from whose third element is a known frame uses the prototype-of
+  classes of the second element, when that element is a prototype root.
+  added-at contributes its class. projected-from contributes none. Any
+  other expression contributes the class named by each source. :error is
+  set when a cloned-from source is not a prototype root. A prototype
+  triple is not walked through in-prototype."
+  [kb expr]
+  (cond
+    (and (utils/eql? (explain/explanation-type expr) (symbol "cloned-from"))
+         (let [third (nth-value expr 2)]
+           (and (kb/kb-object? third)
+                (try (known-frame? kb third)
+                     (catch clojure.lang.ExceptionInfo _ false)))))
+    (let [root (dereference kb (nth-value expr 1))]
+      (if (and (kb/kb-object? root)
+               (some? (:value (get-vals kb root (symbol "prototype-of")
+                                        :situation term/global-situation
+                                        :dereference? false))))
+        (get-vals kb root (symbol "prototype-of")
+                  :situation term/global-situation)
+        {:kb kb
+         :value nil
+         :error (str "(prototype-classes " (print-str root)
+                     "): argument should be a prototype root node or a prototype triple but was not!")}))
+
+    (utils/eql? (explain/explanation-type expr) (symbol "added-at"))
+    {:kb kb :value (term/km-list (nth-value expr 1))}
+
+    (utils/eql? (explain/explanation-type expr) (symbol "projected-from"))
+    {:kb kb :value nil}
+
+    :else
+    {:kb kb
+     :value (term/build-list
+             (mapv explain/originated-from-class
+                   (utils/elements (or (explain/sources expr) nil)))
+             nil)}))
+
+(defn clear-explanations
+  "Remove explanation records.
+
+  Every situation and theory other than *Global is cleared.
+  clear-global? also clears *Global. A prototype is cleared along with
+  every other frame. The caller answers (t)."
+  [kb & {:keys [clear-global?]}]
+  (let [places (into (vec (:situations kb)) (:theories kb))
+        places (if clear-global?
+                 places
+                 (vec (remove #(utils/eql? % term/global-situation) places)))]
+    (reduce (fn [kb frame]
+              (reduce (fn [kb situation]
+                        (let [named (explanation-property kb situation)
+                              property (:value named)
+                              kb (:kb named)]
+                          (if (get-in kb [:frames frame :explanations property])
+                            (update-in kb [:frames frame :explanations] dissoc property)
+                            kb)))
+                      kb
+                      places))
+            kb
+            (:frame-order kb))))
 
 (defn- record-notes
   "Record each stripped original after its value is already stored."

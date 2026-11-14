@@ -1028,3 +1028,5 @@
                           (:state walked)
                           (:lines walked))
            :lines (:lines walked)})))))
+
+(alter-var-root #'frame/*is-subclass-of* (constantly is-subclass-of?))

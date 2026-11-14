@@ -248,3 +248,16 @@
         (is (str/includes? (str (:text (:body lic))) "peterc@allenai.org")))
       (finally
         (server/stop http)))))
+
+(deftest a-comment-is-answered-over-http
+  (let [text "(comment [Pet] \"a pet\" \"owned\")"
+        response (server/handler {:request-method :post
+                                  :uri "/query"
+                                  :headers {"content-type" "text/plain; charset=utf-8"}
+                                  :body (body text)})
+        parsed (parse response)]
+    (is (= 200 (:status response)))
+    (is (= ["a pet" "owned"] (:value parsed)))
+    (is (str/includes? (:statistics parsed) "inferences"))
+    (is (= (without-statistics (server/client-body (engine/evaluate text)))
+           (without-statistics parsed)))))

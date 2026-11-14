@@ -21,9 +21,14 @@
   reverse read or build a sequence. (the-class Class) answers that
   description.
   (why) prints a stored
-  explanation as a KM form. (justify) prints that form too, unless
-  justify-leaves is on, in which case a leaf is one English sentence.
-  (get-justification) returns the same text. (make-sentence),
+  explanation as a KM form, then the entry text and the exit text of a
+  comment on that explanation. (justify) prints nothing for a leaf when
+  developer-mode and justify-leaves are both off. developer-mode prints
+  the KM rule. justify-leaves prints one English sentence and the
+  classes it came from. A comment tag is walked before that leaf.
+  (comment) and (show-comment) store and return comment text.
+  (explain-all) and (clear-explanations) run. (get-justification)
+  returns the same text. (make-sentence),
   (make-phrase), and (andify) build English. (pluralize) records that
   it is no longer defined. (taxonomy) prints the subclass tree.
   Situations, actions, and theories run. (do-plan) walks a chain of
@@ -72,7 +77,8 @@
 
 (def ^:private infinity 999999)
 
-(declare km-int km-unique-int)
+(declare km-int km-unique-int explain-all-command clear-explanations-command
+         justify-one)
 
 (defn- refused?
   [state]
@@ -436,6 +442,12 @@
 
     (contains? #{"eval" "setq" "km-setq"} name)
     (embedded-refusal state expr (str name " is not evaluated."))
+
+    (= name "explain-all")
+    (explain-all-command state expr)
+
+    (= name "clear-explanations")
+    (clear-explanations-command state expr)
 
     :else
     (embedded-refusal state expr nil))))
@@ -2193,6 +2205,205 @@
   [state text]
   (assoc state :text (str (:text state) text)))
 
+(defn- flag-option
+  "The boolean after a keyword whose name is key. A missing key is default.
+
+  nil, the symbol nil, and f are false. A keyword or a symbol names the
+  option. This is the same reading (explain-all) and (clear-explanations)
+  use for their keywords."
+  [expr key default]
+  (loop [tail (when (term/cons? expr) (term/cdr expr))]
+    (cond
+      (or (nil? tail) (not (term/cons? tail))) default
+      :else
+      (let [head (term/car tail)
+            name (cond
+                   (keyword? head) (str/lower-case (name head))
+                   (term/km-symbol? head) (str/lower-case (term/symbol-name head))
+                   :else nil)
+            rest (term/cdr tail)]
+        (if (and (= name key) (term/cons? rest))
+          (let [value (term/car rest)
+                label (cond
+                        (keyword? value) (str/lower-case (name value))
+                        (term/km-symbol? value) (str/lower-case (term/symbol-name value))
+                        :else nil)]
+            (not (or (nil? value)
+                     (false? value)
+                     (contains? #{"nil" "f"} label))))
+          (recur (cond
+                   (and (some? name) (term/cons? rest)) (term/cdr rest)
+                   (term/cons? tail) (term/cdr tail)
+                   :else nil)))))))
+
+(defn- all-concepts
+  "Frame names after dereference, without user comments.
+
+  A later copy of the same name is the one that stays. This is
+  get-all-concepts."
+  [kb]
+  (utils/remove-duplicates
+   (term/build-list
+    (filterv kb/kb-object? (mapv #(frame/dereference kb %) (frame/objects kb)))
+    nil)))
+
+(defn- column-values
+  "One column of explanation records, with the later duplicate kept."
+  [records n]
+  (loop [records records
+         acc []]
+    (if (or (nil? records) (not (term/cons? records)))
+      (utils/remove-duplicates (term/build-list acc nil))
+      (recur (term/cdr records) (conj acc (nth-value (term/car records) n))))))
+
+(defn- records-for
+  "Records whose slot and value match. The value test is eql."
+  [records slot value]
+  (loop [records records
+         acc []]
+    (if (or (nil? records) (not (term/cons? records)))
+      (term/build-list acc nil)
+      (let [record (term/car records)]
+        (recur (term/cdr records)
+               (if (and (utils/eql? (nth-value record 1) slot)
+                        (utils/eql? (nth-value record 2) value))
+                 (conj acc record)
+                 acc))))))
+
+(defn- explain-situation
+  [state instance situation]
+  (let [found (frame/explanation-records (:kb state) instance nil :situation situation)
+        state (assoc state :kb (:kb found))
+        records (:value found)
+        slots (column-values records 1)]
+    (loop [slots slots
+           state state]
+      (if (or (nil? slots) (not (term/cons? slots)))
+        state
+        (let [slot (term/car slots)
+              slot-records (loop [pending records
+                                  acc []]
+                             (if (or (nil? pending) (not (term/cons? pending)))
+                               (term/build-list acc nil)
+                               (let [record (term/car pending)]
+                                 (recur (term/cdr pending)
+                                        (if (utils/eql? (nth-value record 1) slot)
+                                          (conj acc record)
+                                          acc)))))
+              values (column-values slot-records 2)]
+          (recur (term/cdr slots)
+                 (loop [values values
+                        state state]
+                   (if (or (nil? values) (not (term/cons? values)))
+                     state
+                     (let [value (term/car values)
+                           matched (records-for slot-records slot value)
+                           rules (loop [pending matched
+                                        acc []]
+                                   (if (or (nil? pending) (not (term/cons? pending)))
+                                     acc
+                                     (recur (term/cdr pending)
+                                            (conj acc (explain/build-rule
+                                                       (nth-value (term/car pending) 3))))))]
+                       (recur (term/cdr values)
+                              (append-text
+                               state
+                               (str "\n(:triple " (print/km-format instance) " "
+                                    (print/km-format slot) " "
+                                    (print/km-format value) " [in "
+                                    (print/km-format situation) "]) because:\n"
+                                    (apply str (map #(str "   " (print/km-format %) "\n")
+                                                    rules))))))))))))))
+
+(defn- explain-all-command
+  "Print every stored explanation. The answer is (t).
+
+  include-globalp defaults to true. Theories are not walked. A global
+  record is also printed while a local situation is walked, because the
+  read includes both properties."
+  [state expr]
+  (let [include? (flag-option expr "include-globalp" true)
+        places (let [all (vec (frame/situations (:kb state)))]
+                 (if include?
+                   all
+                   (filterv #(not (utils/eql? % term/global-situation)) all)))
+        concepts (all-concepts (:kb state))]
+    (loop [concepts concepts
+           state state]
+      (if (or (nil? concepts) (not (term/cons? concepts)))
+        (assoc state :value (term/km-list (symbol "t")))
+        (let [instance (term/car concepts)]
+          (recur (term/cdr concepts)
+                 (reduce (fn [state situation]
+                           (explain-situation state instance situation))
+                         state
+                         places)))))))
+
+(defn- clear-explanations-command
+  "Remove explanation records and answer (t).
+
+  clear-globalp defaults to false, so *Global stays. A prototype is
+  cleared along with every other frame."
+  [state expr]
+  (assoc state
+         :kb (frame/clear-explanations (:kb state)
+                                       :clear-global? (flag-option expr "clear-globalp" false))
+         :value (term/km-list (symbol "t"))))
+
+(defn- comment-command
+  "Store the text of one comment tag. The answer is that text.
+
+  A tag that is not a comment records the user error and answers nil.
+  The printed form keeps the text as one element."
+  [state pieces]
+  (let [[tag data] pieces]
+    (if-not (explain/comment-tag? tag)
+      (-> (report-error state :user-error
+                        "%s%n       Comment tag %s should be a symbol in square brackets, e.g. [Car1]!"
+                        (print/km-format (term/km-list (symbol "comment") tag data))
+                        (print/km-format tag))
+          (assoc :value nil))
+      (assoc state
+             :kb (frame/store-comment (:kb state) tag data)
+             :value data))))
+
+(defn- show-comment-command
+  "The text stored for one comment tag.
+
+  A valid tag with nothing stored answers nil. A tag that is not a
+  comment records the user error and answers nil."
+  [state pieces]
+  (let [tag (first pieces)]
+    (if-not (explain/comment-tag? tag)
+      (-> (report-error state :user-error
+                        "%s%n       Comment tag %s should be a symbol in square brackets, e.g. [Car1]!"
+                        (print/km-format (term/km-list (symbol "show-comment") tag))
+                        (print/km-format tag))
+          (assoc :value nil))
+      (assoc state :value (frame/comment-data (:kb state) tag)))))
+
+(defn- comment-columns
+  "The exit texts and the entry texts of comment lists.
+
+  The first element of a comment is the exit text. The second is the
+  entry text. Nil elements are left out. This is the first two rows of
+  transpose."
+  [rows]
+  (loop [rows rows
+         exits []
+         entries []]
+    (if (or (nil? rows) (not (term/cons? rows)))
+      {:exit (term/build-list exits nil)
+       :entry (term/build-list entries nil)}
+      (let [row (term/car rows)]
+        (recur (term/cdr rows)
+               (if (some? (when (term/cons? row) (term/car row)))
+                 (conj exits (term/car row))
+                 exits)
+               (if (some? (nth-value row 1))
+                 (conj entries (nth-value row 1))
+                 entries))))))
+
 (defn- report-set-explanation
   [state recorded]
   (report-error (assoc state :kb (:kb recorded))
@@ -2214,7 +2425,29 @@
                                       " [in " (print/km-format situation) "]) because:\n"))]
     (append-text
      (reduce (fn [state explanation]
-               (let [rule (explain/desource-for-printing (explain/build-rule explanation))]
+               (let [sources (explain/sources explanation)
+                     state (if (and (term/cons? sources) (term/cons? (term/cdr sources)))
+                             (report-error state :nodebugger-error
+                                           "get-comments: More than one source path %s (?). Just using first..."
+                                           (print/km-format sources))
+                             state)
+                     tags (explain/comment-tags explanation)
+                     columns (comment-columns
+                              (term/build-list
+                               (mapv #(frame/bound-comment (:kb state) %)
+                                     (utils/elements tags))
+                               nil))
+                     rule (explain/desource-for-printing (explain/build-rule explanation))
+                     state (if (some? (:entry columns))
+                             (append-text state (str "   ENTRY TEXT: "
+                                                     (print/km-format (:entry columns))
+                                                     "\n"))
+                             state)
+                     state (if (some? (:exit columns))
+                             (append-text state (str "   EXIT TEXT: "
+                                                     (print/km-format (:exit columns))
+                                                     "\n"))
+                             state)]
                  (append-text state (str "   RULE: " (print/km-format rule) "\n"))))
              state
              (utils/elements explanations))
@@ -2308,8 +2541,81 @@
                         "Bad argument to (why ...)! Should be of form (why (:triple <f> <s> <v>))!")
           (assoc :value nil)))))
 
+(defn- spaces
+  [n]
+  (apply str (repeat (max 0 (or n 0)) \space)))
+
+(defn- seen?
+  [item coll]
+  (boolean (some #(utils/equal? % item) coll)))
+
+(defn- comma-text
+  "commaify of class names, joined into one string."
+  [classes]
+  (loop [classes classes
+         acc ""]
+    (cond
+      (or (nil? classes) (not (term/cons? classes))) acc
+      (term/singleton? classes) (str acc (print/km-format (term/car classes)))
+      :else (recur (term/cdr classes)
+                   (str acc (print/km-format (term/car classes)) ", ")))))
+
+(defn- intersects?
+  [left right]
+  (boolean (some #(utils/member? % right) (utils/elements left))))
+
+(defn- specific-classes
+  "immediate-classes, then the most specific of those."
+  [state instance]
+  (let [found (taxonomy/immediate-classes (:kb state) instance)
+        removed (taxonomy/remove-subsumers (:kb found) (:value found))]
+    {:state (assoc state :kb (:kb removed))
+     :classes (:value removed)}))
+
+(defn- classes-of-rules
+  "The classes named by these rules, most specific first."
+  [state rules]
+  (loop [rules rules
+         state state
+         acc []]
+    (cond
+      (or (nil? rules) (not (term/cons? rules)))
+      (let [removed (taxonomy/remove-subsumers (:kb state) (term/build-list acc nil))]
+        {:state (assoc state :kb (:kb removed))
+         :classes (:value removed)})
+      :else
+      (let [found (frame/originated-from-classes (:kb state) (term/car rules))]
+        (if (:error found)
+          {:state (report-error (assoc state :kb (:kb found))
+                                :user-error "%s" (:error found))
+           :classes nil}
+          (recur (term/cdr rules)
+                 (assoc state :kb (:kb found))
+                 (into acc (utils/elements (:value found)))))))))
+
+(defn- source-classes
+  "Classes that explain instance slot value in that direction only.
+
+  This is source-classes-for-triple. A prototype triple is not walked
+  through in-prototype."
+  [state instance slot value situation]
+  (let [found (frame/explanations-for (:kb state) instance slot value :situation situation)
+        explanations (loop [items (:value found)]
+                       (cond
+                         (or (nil? items) (not (term/cons? items))) nil
+                         (utils/eql? (nth-value (term/car items) 1) slot)
+                         (nth-value (term/car items) 3)
+                         :else (recur (term/cdr items))))
+        rules (loop [items explanations
+                     acc []]
+                (if (or (nil? items) (not (term/cons? items)))
+                  (term/build-list acc nil)
+                  (let [rule (explain/build-rule (term/car items))]
+                    (recur (term/cdr items) (if (some? rule) (conj acc rule) acc)))))]
+    (classes-of-rules (assoc state :kb (:kb found)) rules)))
+
 (defn- subgoal-text
-  [state triple situation]
+  [state triple situation tab]
   (let [found (frame/explanations-for (:kb state)
                                       (kb/arg1 triple)
                                       (kb/arg2 triple)
@@ -2323,10 +2629,11 @@
                   :else
                   (let [rule (explain/build-rule (term/car items))]
                     (recur (term/cdr items) (if (some? rule) (conj acc rule) acc)))))
-        head (str "\nsubgoal " (print/km-format triple) ": Computed from:")]
+        head (str "\n" (spaces tab) "subgoal " (print/km-format triple) ": Computed from:")]
     {:state (assoc state :kb (:kb found))
      :text (if (seq rules)
-             (apply str head "\n" (map #(str "  " (print/km-format %) "\n") rules))
+             (apply str head "\n"
+                    (map #(str (spaces (+ tab 2)) (print/km-format %) "\n") rules))
              (str head " (unrecorded!)"))}))
 
 (defn- phrase-of
@@ -2346,57 +2653,85 @@
           {:state (:state phrased) :text (:text phrased)})))))
 
 (defn- english-leaf
-  "One sentence for a leaf. Source classes are not ported, so the
-  sentence names this triple and omits the (from ...) suffix."
-  [state triple]
-  (let [instance (phrase-of state (kb/arg1 triple))]
-    (if (refused? (:state instance))
-      {:state (:state instance) :text nil}
-      (let [value (phrase-of (:state instance) (kb/arg3 triple))]
-        {:state (:state value)
-         :text (str "The " (print/km-format (kb/arg2 triple))
-                    " of " (:text instance)
-                    " = " (:text value) ".")}))))
+  "One sentence for a leaf, with the classes the triple came from.
+
+  The sentence names the side whose classes meet those source classes.
+  Nothing stored on either side keeps the triple as it was asked."
+  [state triple situation tab]
+  (let [instance (kb/arg1 triple)
+        slot (kb/arg2 triple)
+        value (kb/arg3 triple)
+        forward (source-classes state instance slot value situation)
+        state (:state forward)
+        inverse (frame/invert-slot (:kb state) slot)
+        backward (source-classes state value inverse instance situation)
+        state (:state backward)
+        classes (utils/remove-duplicates
+                 (utils/append-lists (term/km-list (:classes forward)
+                                                   (:classes backward))))
+        own (specific-classes state instance)
+        other (specific-classes (:state own) value)
+        state (:state other)
+        instance-hit (intersects? (:classes own) classes)
+        value-hit (intersects? (:classes other) classes)
+        shown-instance (cond instance-hit instance value-hit value :else instance)
+        shown-value (cond instance-hit value value-hit instance :else value)
+        shown-slot (cond instance-hit slot value-hit inverse :else slot)
+        phrased-instance (phrase-of state shown-instance)]
+    (if (refused? (:state phrased-instance))
+      {:state (:state phrased-instance) :text nil}
+      (let [phrased-value (phrase-of (:state phrased-instance) shown-value)]
+        {:state (:state phrased-value)
+         :text (str (spaces tab)
+                    "The " (print/km-format shown-slot)
+                    " of " (:text phrased-instance)
+                    " = " (:text phrased-value) "."
+                    (if (some? classes)
+                      (str " (from " (comma-text classes) ")")
+                      ""))}))))
 
 (defn- leaf-text
-  "The line (justify) prints for one triple.
+  "The line (justify) prints for one triple that has no comment tag.
 
   developer-mode prints the KM rule. justify-leaves, when that mode is
   off and the slot is not instance-of, prints one English sentence.
-  Otherwise the KM rule is printed, which is the step 11 text."
-  [state triple situation]
+  Both flags off print nothing."
+  [state triple situation tab]
   (let [developer? (get-in state [:kb :runtime :developer-mode?] false)
         justify? (get-in state [:kb :runtime :justify-leaves?] false)
         slot (kb/arg2 triple)]
-    (if (and (not developer?)
-             justify?
-             (not (utils/eql? slot (symbol "instance-of"))))
-      (english-leaf state triple)
-      (subgoal-text state triple situation))))
+    (cond
+      developer? (subgoal-text state triple situation tab)
+      (and justify? (not (utils/eql? slot (symbol "instance-of"))))
+      (english-leaf state triple situation tab)
+      :else {:state state :text nil})))
 
 (defn- lines-for-triples
-  [state triples situation depth]
+  [state triples situation depth & {:keys [done tab] :or {done [] tab 0}}]
   (if (> depth 20)
     {:state (append-text state
                          "(depth limit for justification reached...no further details below this)\n")
      :lines []}
-    (loop [triples triples
-           seen []
-           state state
-           lines []]
-      (cond
-        (or (nil? triples) (not (term/cons? triples)))
-        {:state state :lines lines}
-        (some #(utils/equal? % (term/car triples)) seen)
-        (recur (term/cdr triples) seen state lines)
-        :else
-        (let [leaf (leaf-text state (term/car triples) situation)]
-          (if (refused? (:state leaf))
-            {:state (:state leaf) :lines []}
-            (recur (term/cdr triples)
-                   (conj seen (term/car triples))
-                   (:state leaf)
-                   (conj lines (:text leaf)))))))))
+    (let [batch (vec (utils/elements triples))
+          done-now (into (vec done) batch)]
+      (loop [triples triples
+             seen []
+             state state
+             lines []]
+        (cond
+          (or (nil? triples) (not (term/cons? triples)))
+          {:state state :lines lines}
+          (or (seen? (term/car triples) seen)
+              (seen? (term/car triples) done))
+          (recur (term/cdr triples) seen state lines)
+          :else
+          (let [walked (justify-one state (term/car triples) situation tab done-now depth)]
+            (if (refused? (:state walked))
+              {:state (:state walked) :lines []}
+              (recur (term/cdr triples)
+                     (conj seen (term/car triples))
+                     (:state walked)
+                     (into lines (filterv some? (:lines walked)))))))))))
 
 (defn- compute-triples
   "The triples a justification explains. A side-effect sentence is on :text."
@@ -2453,6 +2788,260 @@
                                                                slot
                                                                %)
                                                 (utils/elements answer))))))}))))))))
+
+(def ^:private value1-symbol (symbol "Value1"))
+(def ^:private value2-symbol (symbol "Value2"))
+(def ^:private the-slot-symbol (symbol "TheSlot"))
+(def ^:private the-subslot-symbol (symbol "TheSubslot"))
+(def ^:private subslot-comment-tag (symbol "[subslot-reasoning]"))
+
+(defn- subst-comment
+  "Replace Value1, TheSlot, Value2, and TheSubslot.
+
+  A binding of nil stays nil. A symbol inside quote is replaced too.
+  This is sublis of those four symbols."
+  [expr frame slot value subslot]
+  (let [table {value1-symbol frame
+               the-slot-symbol slot
+               value2-symbol value
+               the-subslot-symbol subslot}]
+    (cond
+      (and (term/km-symbol? expr) (contains? table expr)) (get table expr)
+      (term/cons? expr)
+      (term/cons-cell (subst-comment (term/car expr) frame slot value subslot)
+                      (subst-comment (term/cdr expr) frame slot value subslot))
+      :else expr)))
+
+(defn- subslot-comment-body
+  "The text of [subslot-reasoning], without the comment tag.
+
+  Self is not replaced. Value1, TheSlot, Value2, and TheSubslot are
+  replaced afterwards."
+  []
+  (term/km-list
+   ""
+   (term/km-list :seq
+                 "The" the-subslot-symbol (symbol "of") value1-symbol
+                 "=" value2-symbol ", and"
+                 the-subslot-symbol "is a subslot of" the-slot-symbol)
+   (term/km-list :triple value1-symbol the-subslot-symbol value2-symbol)))
+
+(defn- comment-parts
+  "The comment list for an internal tag. A user comment answers nil.
+
+  [subslot-reasoning] uses the built-in text. Any other tag replaces
+  Self with the tag's third element."
+  [kb tag]
+  (when (explain/internal-comment? tag)
+    (if (utils/eql? (nth-value tag 1) subslot-comment-tag)
+      (subslot-comment-body)
+      (frame/bind-self (frame/comment-data kb (nth-value tag 1))
+                       (nth-value tag 2)))))
+
+(defn- comment-field
+  "call, exit, or subgoals of one comment tag. This is get-comment2."
+  [kb tag mode]
+  (let [comments (comment-parts kb tag)]
+    (case mode
+      :call (nth-value comments 1)
+      :exit (nth-value comments 0)
+      :subgoals (nth-value comments 2))))
+
+(defn- forward-explanations
+  "Explanations stored for instance slot value in that direction only.
+
+  This is the explanations list of get-explanations0. The inverse
+  direction is a separate call."
+  [state instance slot value situation]
+  (let [found (frame/explanations-for (:kb state) instance slot value
+                                      :situation situation)
+        explanations (loop [items (:value found)]
+                       (cond
+                         (or (nil? items) (not (term/cons? items))) nil
+                         (utils/eql? (nth-value (term/car items) 1) slot)
+                         (nth-value (term/car items) 3)
+                         :else (recur (term/cdr items))))]
+    {:state (assoc state :kb (:kb found))
+     :explanations explanations}))
+
+(defn- because-line
+  [state instance slot value tab]
+  (let [left (phrase-of state instance)]
+    (if (refused? (:state left))
+      {:state (:state left) :text nil}
+      (let [right (phrase-of (:state left) value)]
+        {:state (:state right)
+         :text (when-not (refused? (:state right))
+                 (str (spaces tab)
+                      "The " (print/km-format slot)
+                      " of " (:text left)
+                      " = " (:text right)
+                      " because:"))}))))
+
+(defn- phrase-line
+  "make-phrase of one evaluated comment field, indented."
+  [state expr tab extra]
+  (let [ran (km-int state expr :fail-mode :fail)]
+    (if (refused? ran)
+      {:state ran :text nil}
+      (let [phrased (phrase-of ran (:value ran))]
+        {:state (:state phrased)
+         :text (when-not (refused? (:state phrased))
+                 (str (spaces tab) extra (:text phrased)))}))))
+
+(defn- justify-computed
+  "One subgoal. The depth check runs before the triple is expanded.
+
+  A value that is not a triple records the user error and contributes
+  no lines. This is get-justification0 for a comment subgoal."
+  [state triple situation tab done depth]
+  (cond
+    (and (some? triple) (not (kb/km-triple? triple)))
+    {:state (report-error state :user-error
+                          "(justify %s): Argument should be a triple (justify (:triple <f> <s> <v>))!"
+                          (print/km-format triple))
+     :lines []}
+
+    (> depth 20)
+    {:state (append-text state
+                         "(depth limit for justification reached...no further details below this)\n")
+     :lines []}
+
+    :else
+    (let [computed (compute-triples state triple)]
+      (if (refused? (:state computed))
+        {:state (:state computed) :lines []}
+        (lines-for-triples (:state computed)
+                           (:triples computed)
+                           situation
+                           depth
+                           :done done
+                           :tab tab)))))
+
+(defn- justify-subgoals
+  "Walk the values of one subgoal expression.
+
+  Nil is not evaluated, so a missing subgoal does not justify the
+  previous answer. Each value is justified one step deeper."
+  [state expr situation tab done depth]
+  (if (nil? expr)
+    {:state state :lines []}
+    (let [ran (km-int state expr :fail-mode :fail)]
+      (if (refused? ran)
+        {:state ran :lines []}
+        (loop [items (:value ran)
+               state ran
+               lines []]
+          (cond
+            (or (nil? items) (not (term/cons? items)))
+            {:state state :lines lines}
+            :else
+            (let [step (justify-computed state (term/car items) situation
+                                         (+ tab 2) done (inc depth))]
+              (if (refused? (:state step))
+                {:state (:state step) :lines []}
+                (recur (term/cdr items)
+                       (:state step)
+                       (into lines (:lines step)))))))))))
+
+(defn- justify-comment
+  "The lines of one comment tag. This is get-comment-justification.
+
+  developer-mode adds the entry and exit banners. The call text is the
+  second element of the comment. The exit text is the first. Subgoals
+  are the third. [subslot-reasoning] reads the built-in comment. The
+  two extra spaces on an exit apply when the tag itself is that symbol."
+  [state tag triple situation tab done depth]
+  (let [frame (kb/arg1 triple)
+        slot (kb/arg2 triple)
+        value (kb/arg3 triple)
+        subslot (nth-value tag 3)
+        bind #(subst-comment % frame slot value subslot)
+        caller (bind (comment-field (:kb state) tag :call))
+        exiter (bind (comment-field (:kb state) tag :exit))
+        subgoals (bind (comment-field (:kb state) tag :subgoals))
+        developer? (get-in state [:kb :runtime :developer-mode?] false)
+        shown (explain/desource-for-printing tag)
+        banner (fn [label]
+                 (str (spaces tab)
+                      "(Doing triple: " (print/km-format triple) ")\n"
+                      label " for " (print/km-format shown) ":"))
+        ;; Live Lisp compares the whole tag with [subslot-reasoning].
+        ;; A stored (comm [subslot-reasoning] ...) does not take the spaces.
+        exit-pad (if (utils/eql? tag subslot-comment-tag) "  " "")
+        entry (when developer? (banner "Entry text"))
+        state (if (some? caller)
+                (phrase-line state caller tab "")
+                {:state state :text nil})]
+    (if (refused? (:state state))
+      {:state (:state state) :lines []}
+      (let [call (:text state)
+            walked (justify-subgoals (:state state) subgoals situation tab done depth)]
+        (if (refused? (:state walked))
+          {:state (:state walked) :lines []}
+          (let [state (if (some? exiter)
+                        (phrase-line (:state walked) exiter tab exit-pad)
+                        {:state (:state walked) :text nil})]
+            (if (refused? (:state state))
+              {:state (:state state) :lines []}
+              {:state (:state state)
+               :lines (filterv some? (into [entry call] (conj (:lines walked)
+                                                              (when developer? (banner "Exit text"))
+                                                              (:text state))))})))))))
+
+(defn- justify-direction
+  "Comment tags for one direction of a triple.
+
+  :lines is nil when this direction has no comment tag, so the other
+  direction can run. A tag keeps the earlier copy. The because line is
+  printed once, then each tag. This is get-justification2."
+  [state instance slot value situation tab done depth]
+  (let [found (forward-explanations state instance slot value situation)
+        tags (utils/remove-duplicates
+              (utils/mapcan-list explain/comment-tags-recursive (:explanations found))
+              :test utils/equal?
+              :from-end? true)]
+    (if (nil? tags)
+      {:state (:state found) :lines nil}
+      (let [because (because-line (:state found) instance slot value tab)]
+        (if (refused? (:state because))
+          {:state (:state because) :lines []}
+          (loop [tags tags
+                 state (:state because)
+                 lines [(:text because)]]
+            (cond
+              (or (nil? tags) (not (term/cons? tags)))
+              {:state state :lines (filterv some? lines)}
+              :else
+              (let [triple (term/km-list :triple instance slot value)
+                    walked (justify-comment state (term/car tags) triple
+                                            situation tab done depth)]
+                (if (refused? (:state walked))
+                  {:state (:state walked) :lines []}
+                  (recur (term/cdr tags)
+                         (:state walked)
+                         (into lines (:lines walked))))))))))))
+
+(defn- justify-one
+  "Comment tags forward, then inverse, then the leaf.
+
+  A direction with a tag is the whole answer. Both flags off and no tag
+  contribute no line. This is get-justification1."
+  [state triple situation tab done depth]
+  (let [instance (kb/arg1 triple)
+        slot (kb/arg2 triple)
+        value (kb/arg3 triple)
+        forward (justify-direction state instance slot value situation tab done depth)]
+    (if (some? (:lines forward))
+      forward
+      (let [inverse (frame/invert-slot (:kb (:state forward)) slot)
+            backward (justify-direction (:state forward) value inverse instance
+                                        situation tab done depth)]
+        (if (some? (:lines backward))
+          backward
+          (let [leaf (leaf-text (:state backward) triple situation tab)]
+            {:state (:state leaf)
+             :lines (if (some? (:text leaf)) [(:text leaf)] [])}))))))
 
 (defn- restoring-question
   [before produced]
@@ -2511,7 +3100,7 @@
                                         (:kb state)
                                         (term/km-list (symbol "the") slot (symbol "of") frame)
                                         value explanation
-                                        :situation term/global-situation)]
+                                        :situation (frame/current-situation (:kb state)))]
                           (if (:program-error recorded)
                             (report-set-explanation state recorded)
                             (assoc state :kb (:kb recorded)))))
@@ -3784,8 +4373,8 @@
     (entry ["get-justification" "?triple"] get-justification-command)
     (entry ["explanation" [:triple "?f0" "?s" "?v0"] "?explanations"] explanation-command)
     (later ["explained-by" "?instance" "?expr"])
-    (later ["comment" "?comment-tag" "&rest"])
-    (later ["show-comment" "?comment-tag"])
+    (entry ["comment" "?comment-tag" "&rest"] comment-command)
+    (entry ["show-comment" "?comment-tag"] show-comment-command)
     (entry ["quote" "?expr"] quote-handler)
     (entry ["unquote" "?expr"] unquote-handler)
     (entry ["delete" "?km-expr"] delete-handler)

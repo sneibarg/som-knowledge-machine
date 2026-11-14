@@ -232,17 +232,184 @@
     (is (utils/equal? entry (first records)))
     (is (utils/equal? other (second records)))))
 
-(deftest justify-prints-the-rule-and-get-justification-returns-it
+(deftest justify-is-quiet-until-developer-mode
   (let [ruled (answer "(every Cat has (color (black)))")
         cat (on ruled "(_Cat1 has (instance-of (Cat)))")
         color (on cat "(the color of _Cat1)")
         just (on color "(justify (:triple _Cat1 color black))")
         got (on color "(get-justification (:triple _Cat1 color black))")
-        text (term/car (:value got))]
+        dev-kb (assoc-in (:kb color) [:runtime :developer-mode?] true)
+        dev (engine/evaluate "(justify (:triple _Cat1 color black))"
+                             {:kb dev-kb :query (:query color)})]
     (is (= (term "(t)") (:value just)))
-    (is (str/includes? (:text just) "subgoal"))
-    (is (str/includes? (:text just) "(every Cat has (color (black)))"))
-    (is (term/singleton? (:value got)))
-    (is (string? text))
-    (is (str/includes? text "subgoal"))
-    (is (str/includes? text "(every Cat has (color (black)))"))))
+    (is (not (str/includes? (str (:text just)) "subgoal")))
+    (is (nil? (:value got)))
+    (is (str/includes? (:text dev) "subgoal"))
+    (is (str/includes? (:text dev) "(every Cat has (color (black)))"))))
+
+(defn- explanation-at
+  [result frame n]
+  (nth-value (nth-value (frame/explanations (:kb result) frame) n) 3))
+
+(deftest explanations-are-stored-newest-first
+  (let [older (answer "(explanation (:triple Fred color red) ((added-at Cat \"older\")))")
+        newer (on older "(explanation (:triple Fred color red) ((added-at Cat \"newer\")))")
+        again (on newer "(explanation (:triple Fred color red) ((added-at Cat \"older\")))")
+        why (on again "(why (:triple Fred color red))")
+        text (:text why)
+        records (utils/elements (frame/explanations (:kb again) (symbol "Fred")))]
+    (is (= 2 (count records)))
+    (is (utils/equal? (term "(added-at Cat \"newer\")") (explanation-at again (symbol "Fred") 0)))
+    (is (utils/equal? (term "(added-at Cat \"older\")") (explanation-at again (symbol "Fred") 1)))
+    (is (< (.indexOf text "newer") (.indexOf text "older")))))
+
+(deftest modify-set-collapses-one-value-and-drops-a-remaining-set
+  (let [one (answer "(explanation (:triple Fred color red) ((:set (a Cat))))")
+        two (on one "(explanation (:triple Sue color blue) ((:set (a Cat) (a Dog))))")
+        quiet (on two "(explanation (:triple Joe color red) ((:set red blue)))")
+        atom (on quiet "(explanation (:triple Sam color green) ((:set green)))")
+        path (on atom "(explanation (:triple Pat color blue) ((:set (the color of Fred))))")
+        bad (on path "(explanation (:triple Ann color white) ((:set (the color of Fred) (a Dog))))")]
+    (is (utils/equal? (term "(a Cat)") (explanation-at one (symbol "Fred") 0)))
+    (is (nil? (frame/explanations (:kb two) (symbol "Sue"))))
+    (is (some #(str/includes? % "PROGRAM ERROR!") (:errors two)))
+    (is (some #(str/includes? % "not-fully-evaluated") (:errors two)))
+    (is (nil? (frame/explanations (:kb quiet) (symbol "Joe"))))
+    (is (empty? (:errors quiet)))
+    (is (nil? (frame/explanations (:kb atom) (symbol "Sam"))))
+    (is (empty? (:errors atom)))
+    (is (utils/equal? (term "(the color of Fred)") (explanation-at path (symbol "Pat") 0)))
+    (is (empty? (:errors path)))
+    (is (= (term "(t)") (:value bad)))
+    (is (nil? (frame/explanations (:kb bad) (symbol "Ann"))))
+    (is (some #(str/includes? % "PROGRAM ERROR!") (:errors bad)))
+    (is (some #(str/includes? % "not-fully-evaluated") (:errors bad)))))
+
+(deftest comments-are-stored-shown-and-written-in-order
+  (let [pet (answer "(comment [Pet] \"a pet\" \"owned\")")
+        dog (on pet "(comment [Dog] \"d\")")
+        shown (on dog "(show-comment [Pet])")
+        missing (on dog "(show-comment [None])")
+        bad (on dog "(comment Fred \"a\")")
+        empty (on dog "(comment [x])")
+        written (on dog "(write-kb)")
+        text (str (:text written))]
+    (is (= (term "(\"a pet\" \"owned\")") (:value pet)))
+    (is (= (term "(\"a pet\" \"owned\")") (:value shown)))
+    (is (nil? (:value missing)))
+    (is (empty? (:errors missing)))
+    (is (nil? (:value bad)))
+    (is (some #(str/includes? % "square brackets") (:errors bad)))
+    (is (nil? (:value empty)))
+    (is (empty? (:errors empty)))
+    (is (str/includes? text "COMMENTS"))
+    (is (< (.indexOf text "[Pet]") (.indexOf text "[Dog]")))
+    (is (str/includes? text "(comment [Pet] \"a pet\" \"owned\")"))))
+
+(deftest why-prints-entry-and-exit-text
+  (let [noted (answer "(comment [Pet] \"owned by someone\" \"a pet is owned\" (:triple Sue color blue))")
+        marked (on noted "(explanation (:triple Fred color red) ((red (comm [Pet] Fred))))")
+        why (on marked "(why (:triple Fred color red))")]
+    (is (= (term "(t)") (:value why)))
+    (is (str/includes? (:text why) "ENTRY TEXT: (\"a pet is owned\")"))
+    (is (str/includes? (:text why) "EXIT TEXT: (\"owned by someone\")"))
+    (is (str/includes? (:text why) "<location unknown>"))))
+
+(deftest why-reports-several-sources-and-still-prints-the-rule
+  (let [marked (answer "(explanation (:triple Fred color red) ((red (@ Fred Cat color) (@ Sue Dog color))))")
+        why (on marked "(why (:triple Fred color red))")]
+    (is (= (term "(t)") (:value why)))
+    (is (some #(str/includes? % "More than one source path") (:errors why)))
+    (is (str/includes? (:text why) "RULE:"))))
+
+(deftest justify-leaves-names-the-class-the-triple-came-from
+  (let [marked (answer "(explanation (:triple Fred color red) ((added-at Cat \"by hand\")))")
+        quiet (on marked "(justify (:triple Fred color red))")
+        kb (assoc-in (:kb marked) [:runtime :justify-leaves?] true)
+        just (engine/evaluate "(justify (:triple Fred color red))"
+                              {:kb kb :query (:query marked)})]
+    (is (not (str/includes? (str (:text quiet)) "subgoal")))
+    (is (not (str/includes? (str (:text quiet)) "from Cat")))
+    (is (str/includes? (str (:text just)) "The color of fred = red. (from Cat)"))))
+
+(deftest a-comment-tag-is-walked-before-the-leaf
+  (let [noted (answer "(comment [Pet] \"owned by someone\" \"a pet is owned\" (:triple Sue color blue))")
+        marked (on noted "(explanation (:triple Fred color red) ((added-at Cat \"note\" (comm [Pet] Fred))))")
+        just (on marked "(justify (:triple Fred color red))")
+        text (str (:text just))
+        sub (on marked "(explanation (:triple Fred color blue) ((added-at Cat \"s\" (comm [subslot-reasoning] Fred hue))))")
+        hue (on sub "(justify (:triple Fred color blue))")]
+    (is (= (term "(t)") (:value just)))
+    (is (str/includes? text "The color of fred = red because:"))
+    (is (str/includes? text "a pet is owned"))
+    (is (< (.indexOf text "a pet is owned") (.indexOf text "owned by someone")))
+    (is (not (str/includes? text "subgoal")))
+    (is (str/includes? (str (:text hue)) "is a subslot of"))))
+
+(deftest a-comment-chain-stops-at-the-depth-limit
+  (let [built (reduce (fn [prev n]
+                        (let [tag (str "[D" n "]")
+                              frame (str "F" n)
+                              next (str "F" (inc n))
+                              noted (on prev (str "(comment " tag
+                                                  " \"exit\" \"call\" (:triple "
+                                                  next " color red))"))
+                              marked (on noted (str "(explanation (:triple " frame
+                                                      " color red) ((added-at Thing \"n\" (comm "
+                                                      tag " " frame "))))"))]
+                          marked))
+                      (answer "(comment [D0] \"exit\" \"call\" (:triple F1 color red))")
+                      (range 1 21))
+        first (on built "(explanation (:triple F0 color red) ((added-at Thing \"n\" (comm [D0] F0))))")
+        just (on first "(justify (:triple F0 color red))")]
+    (is (str/includes? (str (:text just))
+                       "(depth limit for justification reached...no further details below this)"))))
+
+(deftest explain-all-prints-the-rule-and-clear-drops-the-record
+  (let [ruled (answer "(every Cat has (color (black)))")
+        cat (on ruled "(_Cat1 has (instance-of (Cat)))")
+        color (on cat "(the color of _Cat1)")
+        all (on color "(explain-all)")
+        hidden (on color "(explain-all :include-globalp nil)")
+        kept (on all "(clear-explanations)")
+        still (on kept "(why (:triple _Cat1 color black))")
+        sit (on still "(new-situation)")
+        place (term/car (:value sit))
+        local (on sit "(explanation (:triple Fred color red) ((added-at Cat \"local\")))")
+        cleared (on local "(clear-explanations)")
+        gone (on cleared "(clear-explanations :clear-globalp t)")]
+    (is (str/includes? (:text all) "(every Cat has (color (black)))"))
+    (is (not (str/includes? (:text all) "RULE:")))
+    (is (not (str/includes? (str (:text hidden)) "(every Cat has")))
+    (is (str/includes? (:text still) "(every Cat has (color (black)))"))
+    (is (some? (frame/explanations (:kb local) (symbol "Fred") :situation place)))
+    (is (nil? (frame/explanations (:kb cleared) (symbol "Fred") :situation place)))
+    (is (some? (frame/explanations (:kb cleared) (symbol "_Cat1"))))
+    (is (nil? (frame/explanations (:kb gone) (symbol "_Cat1"))))))
+
+(deftest a-remove-subsumers-explanation-vanishes-on-merge
+  (let [linked (answer "(Tabby has (superclasses (Cat)))")
+        spec (on linked "(_Spec has (instance-of (Tabby)))")
+        gen (on spec "(_Gen has (instance-of (Cat)))")
+        colored (on gen "(_Gen has (color (red)))")
+        classed (on colored "(explanation (:triple _Gen instance-of Cat) ((added-at Thing \"gen\")))")
+        marked (on classed "(explanation (:triple _Gen color red) ((added-at Thing \"color\")))")
+        before (:value (frame/get-vals (:kb marked) (symbol "Cat") (symbol "instances")
+                                        :dereference? false))
+        merged (frame/merge-explanations (:kb marked) (symbol "_Gen") (symbol "_Spec"))
+        after (:value (frame/get-vals merged (symbol "Cat") (symbol "instances")
+                                       :dereference? false))
+        copied (utils/elements (frame/explanations merged (symbol "_Spec")))
+        kept (utils/elements (frame/explanations merged (symbol "_Gen")))]
+    (is (utils/member? (symbol "_Gen") before))
+    (is (not (utils/member? (symbol "_Gen") after)))
+    (is (some #(and (utils/eql? (nth-value % 1) (symbol "color"))
+                    (utils/eql? (nth-value % 2) (symbol "red")))
+              copied))
+    (is (not (some #(and (utils/eql? (nth-value % 1) (symbol "instance-of"))
+                         (utils/eql? (nth-value % 2) (symbol "Cat")))
+                   copied)))
+    (is (some #(and (utils/eql? (nth-value % 1) (symbol "instance-of"))
+                    (utils/eql? (nth-value % 2) (symbol "Cat")))
+              kept))
+    (is (some #(utils/eql? % (symbol "_Gen")) (frame/objects merged)))))

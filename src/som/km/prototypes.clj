@@ -573,7 +573,8 @@
                         (let [translated (translate mapping record)]
                           (if (clone-cycle? kb (nth-value translated 3))
                             kb
-                            (frame/record-explanation kb clone translated)))))
+                            (frame/record-explanation kb clone translated
+                                                      :front? false)))))
                     kb
                     (utils/elements (frame/explanations kb participant))))
           kb

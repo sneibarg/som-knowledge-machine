@@ -453,25 +453,53 @@
                              (concat situations theories)))]
     (apply str
            (map (fn [situation]
-                  (loop [records (utils/elements
-                                  (frame/explanations kb frame :situation situation))
-                         acc ""]
-                    (if (empty? records)
-                      acc
-                      (let [record (first records)
-                            expl (fourth record)]
-                        (recur (rest records)
-                               (if (nil? expl)
-                                 acc
-                                 (str acc
-                                      "(explanation (:triple "
-                                      (km-name (term/car record)) " "
-                                      (km-name (term/car (term/cdr record))) " "
-                                      (km-name (term/car (term/cdr (term/cdr record))))
-                                      ")\n  ("
-                                      (km-name expl)
-                                      "))\n")))))))
+                  (let [global? (utils/eql? situation term/global-situation)
+                        theory? (boolean (some #(utils/eql? % situation) theories))
+                        opener (cond
+                                 global? ""
+                                 theory? (str "(in-theory " (km-name situation) " ")
+                                 :else (str "(in-situation " (km-name situation) " "))
+                        closer (if global? "" ")")]
+                    (loop [records (utils/elements
+                                    (frame/explanations kb frame :situation situation))
+                           acc ""]
+                      (if (empty? records)
+                        acc
+                        (let [record (first records)
+                              expl (fourth record)]
+                          (recur (rest records)
+                                 (if (nil? expl)
+                                   acc
+                                   (str acc
+                                        opener
+                                        "(explanation (:triple "
+                                        (km-name (term/car record)) " "
+                                        (km-name (term/car (term/cdr record))) " "
+                                        (km-name (term/car (term/cdr (term/cdr record))))
+                                        ")\n  ("
+                                        (km-name expl)
+                                        "))"
+                                        closer
+                                        "\n"))))))))
                 places))))
+
+(defn- comment-section
+  "The COMMENTS section, in the order the tags were first stored.
+
+  A knowledge base with no user comments writes nothing here. The tag
+  sort by symbol name waits for a later step."
+  [kb]
+  (let [tags (filterv explain/user-comment? (frame/comment-tags kb))]
+    (if (empty? tags)
+      ""
+      (apply str
+             "\n;;; ---------- COMMENTS ----------\n\n"
+             (map (fn [tag]
+                    (str (km-name (term/cons-cell
+                                   (symbol "comment")
+                                   (term/cons-cell tag (frame/comment-data kb tag))))
+                         "\n\n;;; ----------\n\n"))
+                  tags)))))
 
 (defn write-kb-text
   "The text save-kb writes for this knowledge base.
@@ -519,7 +547,8 @@
                        (str "\n;;; ---------- EXPLANATIONS ----------\n\n"
                             (apply str
                                    (map #(explanation-lines kb % situation-names theory-names)
-                                        unbound))))]
+                                        unbound))))
+        comments (comment-section kb)]
     (str "\n;;; Current state of the KB (KM 2.5.45)\n"
          (if-not reset-kb?
            ""
@@ -535,6 +564,7 @@
          "\n;;; ---------- CONTENTS ----------\n\n"
          body
          explanations
+         comments
          "\n;;; ----------------------------------------\n"
          "\n(enable-installing-inverses)  ; (Re-enable it after restoring KB state)\n"
          (if (:installing-inverses? kb)

@@ -140,7 +140,7 @@
         plain (on color "(justify)")
         kb (assoc-in (:kb color) [:runtime :justify-leaves?] true)
         english (engine/evaluate "(justify)" {:kb kb :query (:query color)})]
-    (is (str/includes? (:text plain) "subgoal"))
-    (is (str/includes? (:text plain) "(every Cat has (color (black)))"))
+    (is (not (str/includes? (str (:text plain)) "subgoal")))
     (is (str/includes? (:text english) "The color of the cat = black."))
+    (is (not (str/includes? (:text english) "(from ")))
     (is (:ok english))))

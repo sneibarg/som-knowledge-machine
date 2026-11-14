@@ -7,8 +7,10 @@
   recognizes them and strips them. It also wraps a value written on a
   class with its (@ Self class slot) source. build-rule turns a sourced
   value into (every Class has ...). cloned-from, added-at,
-  projected-from, and every stay as they are. English sentences are a
-  later step. This namespace does not read the frame store."
+  projected-from, and every stay as they are. modify-set-explanation
+  rewrites a :set before the store decides whether to keep it. Comment
+  tags inside an expression are listed here. The frame store keeps the
+  (comment ...) text. This namespace does not read the frame store."
   (:require [som.km.term :as term]
             [som.km.utils :as utils]))
 
@@ -385,6 +387,51 @@
   [expr]
   (if (term/cons? expr) (map-proper desource expr) expr))
 
+(defn modify-set-explanation
+  "Rewrite a :set explanation before it is stored.
+
+  Each element is desourced, and the distinct sources of those elements
+  are appended. One remaining value is returned as that value. A longer
+  result stays a :set. Anything that is not a :set is returned unchanged.
+  This is modify-set-explanation."
+  [expr]
+  (if-not (and (term/cons? expr) (= :set (term/car expr)))
+    expr
+    (let [vals (term/cdr expr)
+          stripped (map-proper desource vals)
+          found (utils/remove-duplicates (utils/mapcan-list sources vals)
+                                         :test utils/equal?)
+          combined (utils/append-lists (term/km-list stripped found))]
+      (cond
+        (nil? combined) nil
+        (term/singleton? combined) (term/car combined)
+        :else (term/cons-cell :set combined)))))
+
+(defn comment-tags
+  "Comment tags among the top elements of expr. This is get-comment-tags."
+  [expr]
+  (when (term/cons? expr)
+    (loop [expr expr
+           acc []]
+      (cond
+        (nil? expr) (term/build-list acc nil)
+        (not (term/cons? expr))
+        (throw (ex-info "This list is dotted." {:tail expr}))
+        (comment-tag? (term/car expr))
+        (recur (term/cdr expr) (conj acc (term/car expr)))
+        :else (recur (term/cdr expr) acc)))))
+
+(defn comment-tags-recursive
+  "Every comment tag in expr, including a tag nested in a list.
+
+  A tag is returned as itself and is not walked again. This is
+  get-comment-tags-recursive."
+  [expr]
+  (cond
+    (comment-tag? expr) (term/km-list expr)
+    (term/cons? expr) (utils/mapcan-list comment-tags-recursive expr)
+    :else nil))
+
 (defn- length-of
   [expr]
   (loop [expr expr
@@ -402,6 +449,11 @@
       (or (nil? value) (not (term/cons? value))) nil
       (zero? n) (term/car value)
       :else (recur (term/cdr value) (dec n)))))
+
+(defn originated-from-class
+  "The class a source names. (@ _Cell1 Cell has-part) is Class."
+  [source]
+  (nth-value source 2))
 
 (def ^:private must-be-a-symbol (symbol "must-be-a"))
 (def ^:private a-symbol (symbol "a"))
