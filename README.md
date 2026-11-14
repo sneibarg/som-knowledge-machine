@@ -12,6 +12,44 @@ The prompt and the HTTP service are two fronts on one engine, `som.km.engine`. N
 clojure -M:test
 ```
 
+## Maven library
+
+Run these commands from the repository root with the Clojure CLI and the project JDK.
+
+```sh
+clojure -T:build jar
+clojure -T:build install
+```
+
+Set the Maven artifact version in [`VERSION`](VERSION). The build names the JAR
+`target/som-knowledge-machine-<version>.jar` and writes the same version into
+its POM. The `install` task rebuilds and installs both files under
+`org.springy.som:som-knowledge-machine:<version>`. Use the same local Maven
+repository in the producer and consumer. If the consumer uses a custom
+repository, set the producer's project `:mvn/local-repo` to the same path.
+
+The JAR contains Clojure sources loaded through `require`, and Maven resolves
+the runtime dependencies from the POM. See the [packaging note](docs/migration/21-maven-library.md)
+for the packaged `(license)` behavior.
+
+### Publish to Nexus
+
+Make the project JDK, Clojure CLI, and Maven available to the Jenkins agent.
+Configure a server entry in the agent's `~/.m2/settings.xml` with ID
+`nexus-snapshots` and credentials that can deploy to the local Nexus server.
+From the checkout root, run this as the Jenkins shell build step:
+
+```sh
+sh ./deploy.sh
+```
+
+The script reads `VERSION`, builds the JAR, and deploys it with the generated
+POM. Versions ending in `-SNAPSHOT` go to
+`http://dragon:8089/repository/maven-snapshots/`. A version without that suffix
+uses the `nexus-releases` server entry and publishes to
+`http://dragon:8089/repository/maven-releases/`. Pass extra Maven options to the
+script as needed, for example `sh ./deploy.sh -s /path/to/settings.xml`.
+
 ## Prompt
 
 ```

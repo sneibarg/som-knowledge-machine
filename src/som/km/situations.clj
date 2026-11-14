@@ -362,8 +362,8 @@
   lists came from, so a constraint walk still sees <>. A clone's
   inertial slot contributes nothing once the situation has a previous
   situation. The value re-read of a parent situation stays off. The
-  Lisp removes sources and keeps the earlier duplicate. This climb does
-  neither: duplicates keep the later copy, matching remove-duplicates."
+  earlier duplicate is kept. A later copy of the same value list is
+  dropped. Sources are not removed."
   [state instance slot km-int]
   (let [situation (frame/target-situation (:kb state)
                                           (frame/current-situation (:kb state))
@@ -403,7 +403,7 @@
                        :value (utils/remove-duplicates
                                (utils/remove-items nil (term/build-list sets nil))
                                :test utils/equal?
-                               :from-end? false))
+                               :from-end? true))
                 (not (term/cons? pending)) (dotted! pending)
                 :else
                 (let [found (rules-in state instance slot (term/car pending))
@@ -729,8 +729,12 @@
       (record-each asserted frame slot values action head))))
 
 (defn- assert-excluded
-  "Store (<> value) by appending. The inverse <> is not written."
-  [state frame slot value]
+  "Store (<> value) by appending, and the inverse <> when the slot records one.
+
+  delete-val and also-hasnt uninstall a link and do not write <>.
+  This is the del-list path. The inverse is an also-has, so paths are
+  evaluated and the value is classified."
+  [state frame slot value km-int]
   (let [stored (frame/add-slotsvals
                 (:kb state) frame
                 (term/km-list (term/km-list slot
@@ -742,7 +746,17 @@
                 :error-structures (:error-structures state))]
     (if (refused? stored)
       (adopt state stored)
-      (adopt state stored))))
+      (let [state (adopt state stored)]
+        (if-not (frame/records-inverse? (:kb state) slot value)
+          state
+          (km-int state
+                  (term/km-list value
+                                (symbol "also-has")
+                                (term/km-list
+                                 (frame/invert-slot (:kb state) slot)
+                                 (term/km-list
+                                  (term/km-list (symbol "<>") frame))))
+                  :fail-mode :error))))))
 
 (defn- assert-proposition
   [state proposition action in-list km-int]
@@ -766,7 +780,7 @@
                   (not (term/cons? pending)) (dotted! pending)
                   :else
                   (recur (term/cdr pending)
-                         (assert-excluded state frame slot (term/car pending))))))))
+                         (assert-excluded state frame slot (term/car pending) km-int)))))))
         (if (contains? inverted-comparison slot)
           state
           (let [evaluated (km-int state value)]

@@ -22,10 +22,25 @@
     (is (str/includes? listed "inferences"))))
 
 (deftest a-refusal-is-printed-from-the-engine
-  (let [reply (repl/respond "  (a Cat) ")]
+  (let [reply (repl/respond "  (retain-expr (1 + 2)) ")]
     (is (= false (:leave reply)))
-    (is (= "This form is not ported yet: (a Cat)." (:text reply)))
-    (is (= (repl/reply-text (engine/evaluate "  (a Cat) ")) (:text reply)))))
+    (is (= "This form is not ported yet: (retain-expr (1 + 2))." (:text reply)))
+    (is (= (repl/reply-text (engine/evaluate "  (retain-expr (1 + 2)) ")) (:text reply)))))
+
+(deftest a-position-read-prints-that-value
+  (let [reply (repl/respond "  (theNth 2 of (:set x y)) ")]
+    (is (= "(y)" (first (str/split-lines (:text reply)))))
+    (is (str/includes? (:text reply) "inferences"))))
+
+(deftest a-sometimes-body-prints-that-value
+  (let [reply (repl/respond "  (sometimes (1 + 2)) ")]
+    (is (= "(3)" (first (str/split-lines (:text reply)))))
+    (is (str/includes? (:text reply) "inferences"))))
+
+(deftest a-conditional-prints-the-then-branch
+  (let [reply (repl/respond "  (if t then 1 else 2) ")]
+    (is (= "(1)" (first (str/split-lines (:text reply)))))
+    (is (str/includes? (:text reply) "inferences"))))
 
 (deftest an-unfinished-line-reports-the-read-error
   (let [reply (repl/respond "(every Car has")]

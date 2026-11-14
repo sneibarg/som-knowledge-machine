@@ -100,9 +100,11 @@
     (is (not= "not-ported" (:error covered)))
     (is (= (frames-of cat) (frames-of covered)))
     (is (= (:counter (:kb cat)) (:counter (:kb covered))))
-    (is (= (term "(_Cat1 (a Dog))") (:value dog)))
+    (is (= (term "(_Cat1 _Dog1)") (:value dog)))
     (is (empty? (:errors dog)))
     (is (not= "not-ported" (:error dog)))
+    (is (= (term "(Dog)")
+           (:value (frame/get-vals (:kb dog) (symbol "_Dog1") (symbol "instance-of")))))
     (is (= (term "(_Cat1)") (:value painted)))
     (is (empty? (:errors painted)))
     (is (= (term "(red)") (:value color)))))
@@ -114,14 +116,27 @@
         linked (answer "(Cat has (superclasses (Animal)))")
         after (on linked "(Animal subsumes Cat)")
         still (on linked "(Cat subsumes Animal)")
-        slotted (answer "('(a Cat with (color (red))) is '(a Animal))")]
+        slotted (answer "('(a Cat with (color (red))) is '(a Animal))")
+        yes (on linked "('(a Cat with (color (red))) is '(a Animal))")]
     (is (= (term "(t)") (:value numbers)))
     (is (empty? (:errors numbers)))
     (is (nil? (:value swapped)))
     (is (nil? (:value before)))
     (is (= (term "(t)") (:value after)))
     (is (nil? (:value still)))
-    (is (= "not-ported" (:error slotted)))))
+    (is (nil? (:value slotted)))
+    (is (empty? (:errors slotted)))
+    (is (not (frame/known-frame? (:kb slotted) (symbol "_Cat1"))))
+    (is (= (term "(t)") (:value yes)))
+    (is (not (frame/known-frame? (:kb yes) (symbol "_Cat1"))))
+    (let [same (answer "('(a Cat with (color (red))) is '(a Cat with (color (red))))")
+          other (answer "('(a Cat with (color (red))) is '(a Cat with (color (blue))))")]
+      (is (= (term "(t)") (:value same)))
+      (is (empty? (:errors same)))
+      (is (not (frame/known-frame? (:kb same) (symbol "_Cat1"))))
+      (is (nil? (:value other)))
+      (is (empty? (:errors other)))
+      (is (not (frame/known-frame? (:kb other) (symbol "_Cat1")))))))
 
 (deftest isa-uses-the-stored-class
   (let [cat (answer "(_Cat1 has (instance-of (Cat)))")
@@ -133,21 +148,24 @@
     (is (empty? (:errors no)))
     (is (= (term "(t)") (:value number)))))
 
-(deftest the-plus-searches-and-then-refuses-to-create
+(deftest the-plus-searches-and-then-creates
   (let [cat (answer "(_Cat1 has (instance-of (Cat)))")
         red (on cat "(_Cat1 has (color (red)))")
         found (on red "(the+ Cat with (color (red)))")
         also (on red "(a+ Cat with (color (red)))")
         missing (on red "(the+ Cat with (color (green)))")
+        painted (frame/get-vals (:kb missing) (symbol "_Cat2") (symbol "color"))
         defined (answer "(every Cat has (color (black)))")
         created (answer "(a Cat)")]
     (is (= (term "(_Cat1)") (:value found)))
     (is (not= "not-ported" (:error found)))
     (is (= (term "(_Cat1)") (:value also)))
-    (is (= "not-ported" (:error missing)))
+    (is (= (term "(_Cat2)") (:value missing)))
+    (is (empty? (:errors missing)))
+    (is (= (term "(green)") (:value painted)))
     (is (= (term "(Cat)") (:value defined)))
     (is (not= "not-ported" (:error defined)))
-    (is (= "not-ported" (:error created)))))
+    (is (= (term "(_Cat1)") (:value created)))))
 
 (deftest the-plus-keeps-the-first-of-several-matches
   (let [first-cat (answer "(_Cat1 has (instance-of (Cat)))")

@@ -42,14 +42,49 @@
     (is (= (without-statistics (server/client-body (engine/evaluate "  (1 + 2)  ")))
            (without-statistics (parse response))))))
 
-(deftest a-creation-form-is-not-ported
+(deftest a-position-read-answers-that-value
   (let [response (server/handler {:request-method :post
                                   :uri "/query"
                                   :headers {"content-type" "text/plain"}
-                                  :body (body "  (a Cat)  ")})]
-    (is (= 501 (:status response)))
-    (is (= "not-ported" (:error (parse response))))
-    (is (= (server/client-body (engine/evaluate "  (a Cat)  ")) (parse response)))))
+                                  :body (body "  (theNth 2 of (:set x y))  ")})]
+    (is (= 200 (:status response)))
+    (is (= [{:symbol "y"}] (:value (parse response))))
+    (is (str/includes? (:statistics (parse response)) "inferences"))
+    (is (= (without-statistics (server/client-body (engine/evaluate "  (theNth 2 of (:set x y))  ")))
+           (without-statistics (parse response))))))
+
+(deftest thing-subsumes-an-unplaced-class
+  (let [response (server/handler {:request-method :post
+                                  :uri "/query"
+                                  :headers {"content-type" "text/plain"}
+                                  :body (body "(Thing subsumes Cat)")})]
+    (is (= 200 (:status response)))
+    (is (= [{:symbol "t"}] (:value (parse response))))
+    (is (str/includes? (:statistics (parse response)) "inferences"))
+    (is (= (without-statistics (server/client-body (engine/evaluate "(Thing subsumes Cat)")))
+           (without-statistics (parse response))))))
+
+(deftest a-sometimes-body-answers-that-value
+  (let [response (server/handler {:request-method :post
+                                  :uri "/query"
+                                  :headers {"content-type" "text/plain"}
+                                  :body (body "  (sometimes (1 + 2))  ")})]
+    (is (= 200 (:status response)))
+    (is (= [3] (:value (parse response))))
+    (is (str/includes? (:statistics (parse response)) "inferences"))
+    (is (= (without-statistics (server/client-body (engine/evaluate "  (sometimes (1 + 2))  ")))
+           (without-statistics (parse response))))))
+
+(deftest a-conditional-answers-the-then-branch
+  (let [response (server/handler {:request-method :post
+                                  :uri "/query"
+                                  :headers {"content-type" "text/plain"}
+                                  :body (body "  (if t then 1 else 2)  ")})]
+    (is (= 200 (:status response)))
+    (is (= [1] (:value (parse response))))
+    (is (str/includes? (:statistics (parse response)) "inferences"))
+    (is (= (without-statistics (server/client-body (engine/evaluate "  (if t then 1 else 2)  ")))
+           (without-statistics (parse response))))))
 
 (deftest a-ratio-and-a-large-power-survive-json
   (let [ratio (server/handler {:request-method :post
@@ -167,8 +202,8 @@
           (is (= 200 (:status colored)))
           (is (= 200 (:status found)))
           (is (= [{:symbol "_Cat1"}] (:value (:body found))))
-          (is (= 501 (:status created)))
-          (is (= "not-ported" (:error (:body created))))
+          (is (= 200 (:status created)))
+          (is (str/starts-with? (-> created :body :value first :symbol) "_Cat"))
           (let [ruled (post base "(every Cat has (color (black)))")
                 kitten (post base "(_Cat2 has (instance-of (Cat)))")
                 inherited (post base "(the color of _Cat2)")]
@@ -202,7 +237,10 @@
               (is (= 200 (:status sit)))
               (is (str/starts-with? (-> sit :body :value first :symbol) "_Situation"))
               (is (= 200 (:status back)))
-              (is (= [{:symbol "*Global"}] (:value (:body back))))))))
+              (is (= [{:symbol "*Global"}] (:value (:body back))))
+              (let [defined (post base "(every House-Owner has-definition (instance-of (Person)))")]
+                (is (= 200 (:status defined)))
+                (is (= [{:symbol "House-Owner"}] (:value (:body defined)))))))))
       (let [lic (post base "(license)")]
         (is (= 200 (:status lic)))
         (is (nil? (:value (:body lic))))

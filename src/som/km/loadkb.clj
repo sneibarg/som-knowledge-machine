@@ -13,11 +13,13 @@
   (:refer-clojure :exclude [load-file])
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [som.km.classify :as classify]
             [som.km.errors :as errors]
             [som.km.frame :as frame]
             [som.km.kbutils :as kb]
             [som.km.minimatch :as match]
             [som.km.print :as print]
+            [som.km.prototypes :as prototypes]
             [som.km.read :as read]
             [som.km.situations :as situations]
             [som.km.stack :as stack]
@@ -439,6 +441,29 @@
       true
       :else (recur (term/cdr values)))))
 
+(defn- refused?
+  [state]
+  (= "not-ported" (:error state)))
+
+(defn- classify-loaded
+  "Unify prototypes and classify one eval-instances batch.
+
+  Prototype mode leaves use-prototypes off, so that batch stays a slot
+  re-read. A number is not classified. Constraints are not checked here."
+  [state instances km-int]
+  (if (or (refused? state)
+          (not (frame/use-prototypes? (:kb state))))
+    state
+    (reduce (fn [state instance]
+              (if (or (refused? state) (not (kb/kb-object? instance)))
+                state
+                (let [unified (prototypes/unify-in-prototypes state instance nil km-int)]
+                  (if (refused? unified)
+                    unified
+                    (classify/classify unified instance km-int)))))
+            state
+            (utils/elements instances))))
+
 (defn- expand-instances
   [state instances km-int rounds]
   (cond
@@ -468,7 +493,8 @@
                                      :else (recur (term/cdr slots) state))))))
                            state
                            (utils/elements instances))
-          after (:value (frame/obj-stack (:kb expanded) (:query expanded)))
+          classed (classify-loaded expanded instances km-int)
+          after (:value (frame/obj-stack (:kb classed) (:query classed)))
           fresh (loop [items after
                        acc []]
                   (cond
@@ -476,9 +502,9 @@
                     (not (term/cons? items)) acc
                     (utils/member? (term/car items) before) (recur (term/cdr items) acc)
                     :else (recur (term/cdr items) (conj acc (term/car items)))))]
-      (if (empty? fresh)
-        expanded
-        (expand-instances expanded (term/build-list fresh nil) km-int (inc rounds))))))
+      (if (or (refused? classed) (empty? fresh))
+        classed
+        (expand-instances classed (term/build-list fresh nil) km-int (inc rounds))))))
 
 (defn- pattern-kept?
   [expr patterns]

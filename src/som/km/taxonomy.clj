@@ -3,19 +3,20 @@
 
   Subsumption walks superclasses stored on the class, and the built-in
   links used when a class has none stored. It does not walk rules
-  inherited from classes, supersituations, or projection. Thing is not
-  added as a superclass when the class does not name one. A user class
-  with no stored Thing link is not a subclass of Thing. A cycle is a
-  broken taxonomy and throws.
+  inherited from classes, supersituations, or projection. A class with
+  nothing stored and no built-in link has Thing as its superclass. A
+  stored list still wins over that fallthrough and over a built-in
+  link. A cycle is a broken taxonomy and throws.
 
   immediate-classes reads instance-of on the instance. An expression
   stored there is not evaluated. A missing instance-of is (Thing).
 
   The slot walks all-superclasses, all-subclasses, all-classes,
-  all-instances, and all-subslots read the stored links. They do not
-  evaluate a slot expression and they do not call the interpreter.
-  all-superclasses adds Thing and leaves the class itself out.
-  immediate-superclasses still does not invent Thing.
+  all-instances, and all-subslots read the stored links and the
+  built-in side table. They do not evaluate a slot expression and they
+  do not call the interpreter. all-superclasses adds Thing and leaves
+  the class itself out. immediate-superclasses adds Thing only when
+  nothing is stored and the class is not a built-in link.
 
   taxonomy-text prints the tree. The walk follows the relation in list
   order. It does not sort by symbol name and it does not follow hash
@@ -125,11 +126,11 @@
     stored))
 
 (defn immediate-superclasses
-  "The superclasses stored on class.
+  "The superclasses of class.
 
   Thing has none. A class description uses its class. A stored list is
-  used as it is, and it wins over a built-in link. A class that stores
-  nothing and is not a built-in link has none. Thing is not invented."
+  used as it is, and it wins over a built-in link. A built-in link is
+  used when nothing is stored. Anything else is (Thing)."
   [kb class]
   (cond
     (utils/eql? class thing) {:kb kb :value nil}
@@ -141,7 +142,7 @@
         (some? stored) (assoc found :value stored)
         (contains? superclass-links class)
         {:kb (:kb found) :value (chain (superclass-links class))}
-        :else {:kb (:kb found) :value nil}))))
+        :else {:kb (:kb found) :value (chain [thing])}))))
 
 (defn is-subclass-of?
   "class when class is target or sits under it. Otherwise nil.

@@ -10,9 +10,10 @@
 
   A lazy result may leave (_A & _B) or ((_A _B) && (_C)) on a slot.
   The next read of that slot finishes it. &! does not leave a residue.
-  This step does not create a Skolem for (a Class). When
-  *remove-subsuming* is set, an existential that covers an instance is
-  dropped. &+ inside that check may write the instance's slots.
+  && evaluates a leftover (a Class) after a covered existential has
+  been dropped. When *remove-subsuming* is set, an existential that
+  covers an instance is dropped and is not created. &+ inside that
+  check may write the instance's slots.
 
   Constraints distinguish a consistent value from a satisfied one.
   at-least and exactly do not invent filler instances.
@@ -50,6 +51,15 @@
   time. The var lives here so unification does not require that namespace."}
   *remove-subsuming*
   nil)
+
+(def ^{:dynamic true
+       :doc "Classifies a frame after a written unification changes its slots.
+
+  The default leaves the state as it is. som.km.classify installs the
+  classifier at load time. The var lives here so unification does not
+  require that namespace. A test that does not write does not call it."}
+  *classify-survivor*
+  (fn [state _instance _km-int] state))
 
 (def ^:private neq-slot (symbol nil "/=="))
 (def ^:private thing (symbol "Thing"))
@@ -94,6 +104,45 @@
       (or (nil? value) (not (term/cons? value))) nil
       (zero? n) (term/car value)
       :else (recur (term/cdr value) (dec n)))))
+
+(defn- pair-unit-seen?
+  "True when a kept pair already has this unit.
+
+  The unit is the second argument of the pair. Lisp eq on that unit
+  is eql? on the symbol name."
+  [selected unit]
+  (loop [selected selected]
+    (cond
+      (nil? selected) false
+      (not (term/cons? selected)) false
+      (utils/eql? (kb/arg2 (term/car selected)) unit) true
+      :else (recur (term/cdr selected)))))
+
+(defn- pair-filter
+  "Keep the first pair of each unit. A value that is not a pair stays.
+
+  A later pair whose unit is already kept is dropped. The dropped
+  values are not deleted from the slot."
+  [vals]
+  (loop [vals vals
+         selected nil
+         acc []]
+    (cond
+      (nil? vals) (term/build-list acc nil)
+      (not (term/cons? vals)) (term/build-list acc nil)
+      :else
+      (let [pair (term/car vals)]
+        (if (or (not (kb/km-pair-value? pair))
+                (not (pair-unit-seen? selected (kb/arg2 pair))))
+          (recur (term/cdr vals)
+                 (term/cons-cell pair selected)
+                 (conj acc pair))
+          (recur (term/cdr vals) selected acc))))))
+
+(defn- pair-filter-name?
+  [filter-name]
+  (and (term/lisp-symbol? filter-name)
+       (= "pair-filter" (.toLowerCase (name filter-name)))))
 
 (defn- operator
   [eagerly? classes-subsumep]
@@ -955,8 +1004,17 @@
       ;; The Lisp returns t here, which is not a value list.
       (assoc state :value (symbol "t"))
       (utils/eql? head (symbol "set-filter"))
-      ;; set-filter applies an embedded Lisp function. It is not run.
-      (assoc state :value vals)
+      ;; The Lisp drops values only when *remove-violating-instances*
+      ;; is set, and that flag starts nil. A named pair-filter is
+      ;; applied here anyway. An unknown filter is recorded and the
+      ;; values stay. Dropped values are not deleted.
+      (let [filter-name (nth-el constraint 1)]
+        (if (pair-filter-name? filter-name)
+          (assoc state :value (pair-filter vals))
+          (-> (errors/report-error state :user-error
+                                   "Unrecognized set-filter %s!"
+                                   (errors/format-term filter-name))
+              (assoc :value vals))))
       (#{(symbol "at-least") (symbol "exactly") (symbol "at-most")} head)
       (let [n (nth-el constraint 1)
             class (nth-el constraint 2)
@@ -1490,12 +1548,238 @@
 
 (declare lazy-unify)
 
+(defn- dont-merge-prototype-vals?
+  "The never-merge slot and class lists start empty, so nothing is excluded.
+
+  A slot in that slot list, or a value whose class is in that class
+  list, would stay appended."
+  [_state _slot]
+  false)
+
+(defn- overlap
+  [left right]
+  (loop [left left
+         acc []]
+    (cond
+      (or (nil? left) (not (term/cons? left))) (term/build-list acc nil)
+      (utils/member? (term/car left) right) (recur (term/cdr left) (conj acc (term/car left)))
+      :else (recur (term/cdr left) acc))))
+
+(defn- cloned-from*
+  "Transitive cloned-from values, without the starting frame."
+  [kb frame]
+  (let [direct (frame/get-vals kb frame (symbol "cloned-from")
+                               :situation term/global-situation
+                               :dereference? false)]
+    (loop [agenda (vec (utils/elements (:value direct)))
+           kb (:kb direct)
+           seen #{}
+           acc []]
+      (if (empty? agenda)
+        {:kb kb :value (term/build-list acc nil)}
+        (let [item (first agenda)]
+          (if (or (not (kb/kb-object? item)) (contains? seen item))
+            (recur (rest agenda) kb seen acc)
+            (let [found (frame/get-vals kb item (symbol "cloned-from")
+                                        :situation term/global-situation
+                                        :dereference? false)]
+              (recur (into (vec (rest agenda)) (utils/elements (:value found)))
+                     (:kb found)
+                     (conj seen item)
+                     (conj acc item)))))))))
+
+(defn- participant-roots
+  [kb nodes]
+  (loop [nodes nodes
+         kb kb
+         acc []]
+    (cond
+      (or (nil? nodes) (not (term/cons? nodes)))
+      {:kb kb :value (term/build-list acc nil)}
+      :else
+      (let [found (frame/get-vals kb (term/car nodes)
+                                  (symbol "prototype-participant-of")
+                                  :situation term/global-situation
+                                  :dereference? false)]
+        (recur (term/cdr nodes)
+               (:kb found)
+               (into acc (utils/elements (:value found))))))))
+
+(defn- nodes-in-roots
+  [kb nodes roots]
+  (loop [nodes nodes
+         kb kb
+         acc []]
+    (cond
+      (or (nil? nodes) (not (term/cons? nodes)))
+      {:kb kb :value (term/build-list acc nil)}
+      :else
+      (let [roots-of (participant-roots kb (term/km-list (term/car nodes)))]
+        (recur (term/cdr nodes)
+               (:kb roots-of)
+               (if (some? (overlap (:value roots-of) roots))
+                 (conj acc (term/car nodes))
+                 acc))))))
+
+(defn- shared-prototype-nodes
+  [state i1 i2]
+  (let [c1 (cloned-from* (:kb state) i1)
+        c2 (cloned-from* (:kb c1) i2)
+        r1 (participant-roots (:kb c2) (:value c1))
+        r2 (participant-roots (:kb r1) (:value c2))
+        roots (overlap (:value r1) (:value r2))
+        n1 (nodes-in-roots (:kb r2) (:value c1) roots)
+        n2 (nodes-in-roots (:kb n1) (:value c2) roots)
+        shared (overlap (:value n1) (:value n2))]
+    {:state (assoc state :kb (:kb n2))
+     :roots roots
+     :merge? (and (some? roots) (some? shared))}))
+
+(defn- classes-either-way?
+  [kb left right]
+  (let [c1 (frame/get-vals kb left (symbol "instance-of")
+                           :situation term/global-situation
+                           :dereference? false)
+        c2 (frame/get-vals (:kb c1) right (symbol "instance-of")
+                           :situation term/global-situation
+                           :dereference? false)
+        forward (taxonomy/classes-subsume-classes? (:kb c2) (:value c1) (:value c2))]
+    (if (:value forward)
+      forward
+      (taxonomy/classes-subsume-classes? (:kb forward) (:value c2) (:value c1)))))
+
+(defn- shares-cloned-source?
+  "True when the two values were cloned from one node in the shared roots.
+
+  The Lisp scores every permutation and keeps the best non-overlapping
+  pairs. A shared cloned-from source, with classes that subsume either
+  way, is the pair this join builds."
+  [kb v1 v2 roots]
+  (let [c1 (cloned-from* kb v1)
+        c2 (cloned-from* (:kb c1) v2)
+        sources (overlap (:value c1) (:value c2))
+        r1 (participant-roots (:kb c2) (:value c1))
+        r2 (participant-roots (:kb r1) (:value c2))
+        classes (if (and (some? sources)
+                         (some? (overlap (:value r1) roots))
+                         (some? (overlap (:value r2) roots))
+                         (some? (overlap (:value r1) (:value r2))))
+                  (classes-either-way? (:kb r2) v1 v2)
+                  {:kb (:kb r2) :value false})]
+    {:kb (:kb classes) :shared? (boolean (:value classes))}))
+
+(defn- pair-cloned-values
+  [state vs1 vs2 roots]
+  (loop [left vs1
+         right vs2
+         state state
+         pairs []]
+    (if (or (nil? left) (not (term/cons? left)))
+      [pairs state]
+      (let [v1 (term/car left)]
+        (if-not (kb/kb-object? v1)
+          (recur (term/cdr left) right state pairs)
+          (let [hit (loop [candidates right
+                           kb (:kb state)]
+                      (cond
+                        (or (nil? candidates) (not (term/cons? candidates)))
+                        {:kb kb :match nil}
+                        :else
+                        (let [v2 (term/car candidates)]
+                          (if-not (and (kb/kb-object? v2)
+                                       (not (utils/equal? v1 v2))
+                                       (not (stack/pending-equality?
+                                             kb (:query state) v1 v2)))
+                            (recur (term/cdr candidates) kb)
+                            (let [shared (shares-cloned-source? kb v1 v2 roots)]
+                              (if (:shared? shared)
+                                {:kb (:kb shared) :match v2}
+                                (recur (term/cdr candidates) (:kb shared))))))))]
+            (if (nil? (:match hit))
+              (recur (term/cdr left) right (assoc state :kb (:kb hit)) pairs)
+              (recur (term/cdr left)
+                     (utils/remove-items (:match hit) right)
+                     (assoc state :kb (:kb hit))
+                     (conj pairs [v1 (:match hit)])))))))))
+
+(defn- joined-pairs
+  [vs1 vs2 pairs]
+  (let [chosen (into {} pairs)
+        used (set (map second pairs))
+        left (loop [items vs1
+                    acc []]
+               (cond
+                 (or (nil? items) (not (term/cons? items))) acc
+                 :else
+                 (let [item (term/car items)
+                       partner (get chosen item)]
+                   (recur (term/cdr items)
+                          (conj acc (if (some? partner)
+                                      (term/km-list item (symbol "&!") partner)
+                                      item))))))]
+    (loop [items vs2
+           acc left]
+      (cond
+        (or (nil? items) (not (term/cons? items))) (term/build-list acc nil)
+        (contains? used (term/car items)) (recur (term/cdr items) acc)
+        :else (recur (term/cdr items) (conj acc (term/car items)))))))
+
+(defn- prototype-merge?
+  [state slot i1 i2 eagerly?]
+  (if-not (and eagerly?
+               (kb/kb-object? i1)
+               (kb/kb-object? i2)
+               (some? (get (:query state) :partially-included-prototype))
+               (not (frame/built-in-appending-slot? slot))
+               (not (utils/eql? slot neq-slot))
+               (not (dont-merge-prototype-vals? state slot)))
+    [state false]
+    (let [proto (get (:query state) :partially-included-prototype)
+          from1 (frame/get-vals (:kb state) i1 (symbol "cloned-from")
+                                :situation term/global-situation
+                                :dereference? false)
+          from2 (frame/get-vals (:kb from1) i2 (symbol "cloned-from")
+                                :situation term/global-situation
+                                :dereference? false)]
+      (loop [items (utils/append-lists (term/km-list (:value from1) (:value from2)))
+             kb (:kb from2)]
+        (cond
+          (or (nil? items) (not (term/cons? items)))
+          [(assoc state :kb kb) false]
+          :else
+          (let [root (frame/get-unique-val kb (term/car items)
+                                           (symbol "prototype-participant-of")
+                                           :situation term/global-situation)]
+            (if (utils/eql? proto (:value root))
+              [(assoc state :kb (:kb root)) true]
+              (recur (term/cdr items) (:kb root)))))))))
+
+(defn- merge-prototype-vals
+  [state slot i1 i2 vs1 vs2 target]
+  (let [gate (shared-prototype-nodes state i1 i2)
+        appended (kb/remove-dup-instances (utils/append-lists (term/km-list vs1 vs2)))]
+    (if-not (:merge? gate)
+      (succeed (:state gate) appended)
+      (let [[pairs state] (pair-cloned-values (:state gate) vs1 vs2 (:roots gate))]
+        (if (empty? pairs)
+          (succeed state appended)
+          (let [found (km state
+                          (kb/vals-to-val (joined-pairs vs1 vs2 pairs))
+                          :target (or target
+                                      (term/km-list (symbol "the") slot (symbol "of")
+                                                    (term/km-list i1 (symbol "&!") i2))))]
+            (if (refused? found)
+              found
+              (succeed found (kb/remove-dup-instances (:value found))))))))))
+
 (defn- lazy-unify-vals
   "The combined values of one slot. :ok is false when they cannot combine.
 
   A single-valued pair that can combine and is not eager becomes
   (_A & _B). &! evaluates that pair. A multivalued lazy pair becomes
-  a && residue. Inheritance of constraints is not applied."
+  a && residue. A user appending slot appends, except while a partial
+  prototype is being unified in: values cloned from one source are
+  joined with &!. Inheritance of constraints is not applied."
   [state slot i1 i2 vs1 vs2 & {:keys [classes-subsumep eagerly? target]}]
   (cond
     (nil? vs2) (succeed state vs1)
@@ -1510,7 +1794,10 @@
     (let [hit (taxonomy/remove-subsumees (:kb state) (utils/append-lists (term/km-list vs1 vs2)))]
       (succeed (adopt state hit) (:value hit)))
     (or (frame/appending-slot? (:kb state) slot) (utils/eql? slot neq-slot))
-    (succeed state (kb/remove-dup-instances (utils/append-lists (term/km-list vs1 vs2))))
+    (let [[state merge?] (prototype-merge? state slot i1 i2 eagerly?)]
+      (if merge?
+        (merge-prototype-vals state slot i1 i2 vs1 vs2 target)
+        (succeed state (kb/remove-dup-instances (utils/append-lists (term/km-list vs1 vs2))))))
     (and (inherit-overrides? (:kb state) slot)
          (not (any-anonymous? (:kb state) vs1))
          (not (any-anonymous? (:kb state) vs2)))
@@ -1722,9 +2009,18 @@
         (if-not (:ok trial)
           (fail-unify trial left right eagerly? classes-subsumep fail-mode)
           (let [bound (reduce apply-binding trial (or (:bindings trial) []))
-                written (write-slots bound (:value trial) (:slots trial))
-                written (update-in written [:query :unifications] (fnil inc 0))]
-            (succeed written (:value trial))))))))
+                survivor (:value trial)
+                [compared existing] (slots-of bound survivor)
+                changed? (and (kb/kb-object? survivor)
+                              (not (utils/equal? existing (:slots trial))))
+                written (write-slots compared survivor (:slots trial))
+                classified (if (and changed? (some? *km-int*))
+                             (*classify-survivor* written survivor *km-int*)
+                             written)
+                counted (update-in classified [:query :unifications] (fnil inc 0))]
+            (if (refused? counted)
+              counted
+              (succeed counted survivor))))))))
 
 (declare probe)
 
@@ -1939,8 +2235,13 @@
                     (fail merged))
                   (not commit?) (succeed merged instance)
                   :else
-                  (let [[written _] (put-unified-slots merged instance (:slots merged))]
-                    (succeed written instance)))))))))))
+                  (let [[written changed?] (put-unified-slots merged instance (:slots merged))
+                        classified (if (and changed? (some? *km-int*))
+                                     (*classify-survivor* written instance *km-int*)
+                                     written)]
+                    (if (refused? classified)
+                      classified
+                      (succeed classified instance))))))))))))
 
 (declare unify-pair)
 
@@ -2208,11 +2509,35 @@
   [left right]
   [(ordered-difference left right) (ordered-difference right left)])
 
+(defn- eval-leftover
+  "Evaluate a leftover (a Class). Another expression stays as it is.
+
+  This is the second pass of &&. A covered existential has already been
+  removed, so this pass creates the instances that remain. (some ...)
+  stays unevaluated."
+  [state exprs target]
+  (loop [exprs exprs
+         state state
+         acc []]
+    (cond
+      (or (nil? exprs) (not (term/cons? exprs)))
+      [state (term/build-list acc nil)]
+      (and (term/cons? (term/car exprs))
+           (utils/eql? (symbol "a") (term/car (term/car exprs))))
+      (let [found (km state (term/car exprs) :target target)]
+        (if (refused? found)
+          [found :refused]
+          (recur (term/cdr exprs)
+                 found
+                 (into acc (utils/elements (:value found))))))
+      :else
+      (recur (term/cdr exprs) state (conj acc (term/car exprs))))))
+
 (defn- eval-definite
   "Evaluate a value that is not an existential and not a structured list.
 
-  Existential expressions are left in place. This step does not create
-  a Skolem for them."
+  Existential expressions are left in place on this pass. A leftover
+  (a Class) is created later, after covered expressions are removed."
   [state exprs target]
   (loop [exprs exprs
          state state
@@ -2236,8 +2561,8 @@
   A failed pair is skipped, so the result keeps both values. When
   *remove-subsuming* is set, an existential that covers an instance is
   removed and that instance stays in the original set. A leftover
-  (a Class) is not evaluated. (a Class) is not created. Explanations
-  are not stored, so every value stays unexplained."
+  (a Class) is then evaluated, so the result holds the new instance.
+  Explanations are not stored, so every value stays unexplained."
   [state exprs1 exprs2 & {:keys [eagerly? target]}]
   (if-not (and (utils/lisp-list? exprs1) (utils/lisp-list? exprs2))
     (-> (errors/report-error state :user-error
@@ -2269,18 +2594,21 @@
                   (let [state (or dropped state)
                         left (if dropped (:instances dropped) reduced1)
                         right (if dropped (:exprs dropped) set2)
-                        unified (lazy-unify-sets state left right
-                                                 :eagerly? eagerly? :target target)]
-                    (if (refused? unified)
-                      unified
-                      (let [final (kb/remove-dup-instances
-                                   (utils/append-lists
-                                    (term/km-list
-                                     (frame/dereference (:kb unified) (:value set1))
-                                     (ordered-difference
-                                      (frame/dereference (:kb unified) right)
-                                      (frame/dereference (:kb unified) (:value unified))))))]
-                        (assoc unified :ok true :value final)))))))))))))
+                        [state new-right] (eval-leftover state right target)]
+                    (if (= new-right :refused)
+                      state
+                      (let [unified (lazy-unify-sets state left new-right
+                                                     :eagerly? eagerly? :target target)]
+                        (if (refused? unified)
+                          unified
+                          (let [final (kb/remove-dup-instances
+                                       (utils/append-lists
+                                        (term/km-list
+                                         (frame/dereference (:kb unified) (:value set1))
+                                         (ordered-difference
+                                          (frame/dereference (:kb unified) new-right)
+                                          (frame/dereference (:kb unified) (:value unified))))))]
+                            (assoc unified :ok true :value final)))))))))))))))
 
 (defn- regroup
   "Rewrite a chain of four or more of the same joiner.

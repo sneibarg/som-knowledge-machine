@@ -10,9 +10,12 @@
   back unless the slot says not to cache, and the frame remembers that
   the slot was computed. A constraint that evaluated to nothing is put
   back, so a read does not drop it. Local and inherited constraints are
-  enforced on the values just computed. The interpreter is passed in,
-  so this namespace does not call it by name."
-  (:require [som.km.errors :as errors]
+  enforced on the values just computed. A stored (no-inheritance)
+  skips subslots and inherited rules. A default is evaluated once.
+  The interpreter is passed in, so this namespace does not call it
+  by name."
+  (:require [som.km.classify :as classify]
+            [som.km.errors :as errors]
             [som.km.explain :as explain]
             [som.km.frame :as frame]
             [som.km.kbutils :as kb]
@@ -523,11 +526,139 @@
         (recur (term/cdr sets)
                (if (some? defaults) (conj acc defaults) acc))))))
 
+(defn- no-inheritance?
+  "True when constraints contain (no-inheritance).
+
+  The Lisp also requires *use-no-inheritance-flag*, which starts nil
+  and is never set. A stored constraint is honored here, so the flag
+  changes the read. Comments are stripped before the comparison."
+  [constraints]
+  (let [marker (term/km-list (symbol "no-inheritance"))]
+    (loop [constraints constraints]
+      (cond
+        (nil? constraints) false
+        (not (term/cons? constraints)) false
+        (utils/equal? (explain/desource-decomment (term/car constraints)) marker)
+        true
+        :else (recur (term/cdr constraints))))))
+
+(defn- consistent-default-vals
+  [state vals curr-vals constraints slot km-int]
+  (let [constraints (frame/dereference (:kb state) constraints)]
+    (loop [vals vals
+           state state
+           acc []]
+      (cond
+        (refused? state) state
+        (nil? vals) (assoc state :value (term/build-list acc nil))
+        (not (term/cons? vals)) (dotted! vals)
+        :else
+        (let [val (term/car vals)
+              combined (utils/append-lists (term/km-list curr-vals (term/km-list val)))
+              hit (unify/test-constraints state combined constraints km-int
+                                          :slot slot :mode :consistent)]
+          (cond
+            (refused? hit) hit
+            (:value hit) (recur (term/cdr vals) hit (conj acc val))
+            :else (recur (term/cdr vals) hit acc)))))))
+
+(defn- default-body-vals
+  "The values of one (:default expr), or nil when they do not fit.
+
+  A single-valued clash with the intermediate values drops the whole
+  body. Any other value is kept only when it is consistent with the
+  constraints. The body is not sent back through the handler that
+  only records the flag."
+  [state expr curr-vals constraints slot single? km-int]
+  (let [evaluated (km-int state (nth-value expr 1))]
+    (if (refused? evaluated)
+      evaluated
+      (if (and single? (some? curr-vals) (some? (:value evaluated)))
+        (let [probe (km-int evaluated
+                            (term/km-list (term/car curr-vals)
+                                          (symbol "&?")
+                                          (term/car (:value evaluated))))]
+          (cond
+            (refused? probe) probe
+            (nil? (:value probe)) (assoc probe :value nil)
+            :else (consistent-default-vals probe (:value evaluated) curr-vals
+                                           constraints slot km-int)))
+        (consistent-default-vals evaluated (:value evaluated) curr-vals
+                                 constraints slot km-int)))))
+
+(defn- expr-set-has-default?
+  [exprs]
+  (loop [exprs exprs]
+    (cond
+      (nil? exprs) false
+      (not (term/cons? exprs)) false
+      (kb/km-default? (term/car exprs)) true
+      :else (recur (term/cdr exprs)))))
+
+(defn- rewrite-default-set
+  [state exprs curr-vals constraints slot single? km-int]
+  (if-not (expr-set-has-default? exprs)
+    {:state state :set exprs}
+    (loop [exprs exprs
+           state state
+           acc []]
+      (cond
+        (refused? state) {:state state :set nil}
+        (nil? exprs) {:state state :set (term/build-list acc nil)}
+        (not (term/cons? exprs)) (dotted! exprs)
+        (kb/km-default? (term/car exprs))
+        (let [filtered (default-body-vals state (term/car exprs) curr-vals
+                                          constraints slot single? km-int)]
+          (if (refused? filtered)
+            {:state filtered :set nil}
+            (recur (term/cdr exprs)
+                   filtered
+                   (into acc (utils/elements (:value filtered))))))
+        :else (recur (term/cdr exprs) state (conj acc (term/car exprs)))))))
+
+(defn- filter-defaults
+  "Replace each (:default expr) with the values its body produces.
+
+  An expr-set with no default is left as it is. :rules is the list of
+  expr-sets. :value is the intermediate values the caller already has."
+  [state rule-sets curr-vals constraints slot single? km-int]
+  (loop [sets rule-sets
+         state state
+         acc []]
+    (cond
+      (refused? state) state
+      (nil? sets) (assoc state :rules (term/build-list acc nil) :value curr-vals)
+      (not (term/cons? sets)) (dotted! sets)
+      :else
+      (let [rewritten (rewrite-default-set state (term/car sets) curr-vals
+                                           constraints slot single? km-int)]
+        (if (refused? (:state rewritten))
+          (:state rewritten)
+          (recur (term/cdr sets) (:state rewritten) (conj acc (:set rewritten))))))))
+
+(defn- rules-for-fold
+  "Inherited rules, with defaults replaced by the values they produce.
+
+  A stored (no-inheritance) contributes no rules, so the fold and the
+  recursive retry see none. The Lisp also gates that skip on
+  *use-no-inheritance-flag*, which starts nil. The stored constraint
+  is enough here. A default body is evaluated once against the
+  intermediate values."
+  [state inherited-rules own-value curr-vals constraints slot single? no-inh? km-int]
+  (cond
+    no-inh? (assoc state :rules nil :value curr-vals)
+    (frame/are-some? (:kb state) :defaults)
+    (filter-defaults state
+                     (utils/append-lists
+                      (term/km-list (default-sets own-value) inherited-rules))
+                     curr-vals constraints slot single? km-int)
+    :else (assoc state :rules inherited-rules :value curr-vals)))
+
 (defn- subslot-values
   "The values of slot's immediate subslots, as one value list.
 
-  Several subslots are one (:set ...) expression. (no-inheritance) does
-  not suppress this read."
+  Several subslots are one (:set ...) expression. The caller skips
+  this read when (no-inheritance) is stored."
   [state instance slot target km-int]
   (let [subs (taxonomy/immediate-subslots (:kb state) slot)]
     (if (nil? (:value subs))
@@ -879,19 +1010,19 @@
             (if (refused? inherited)
               inherited
               (let [state (:state inherited)
-                    rules (if (frame/are-some? (:kb state) :defaults)
-                            (utils/append-lists
-                             (term/km-list (default-sets own-value) (:rules inherited)))
-                            (:rules inherited))
+                    inherited-rules (:rules inherited)
                     constraints (utils/append-lists
                                  (term/km-list (:constraints inherited) own-constraints))
+                    no-inh? (no-inheritance? constraints)
                     projected (project-from-prev state instance slot constraints km-int)]
                 (if (refused? (:state projected))
                   (:state projected)
                   (let [state (:state projected)
                         prev (:prev projected)
                         projected-vals (:values projected)
-                        sub (subslot-values state instance slot target km-int)]
+                        sub (if no-inh?
+                              (assoc state :value nil)
+                              (subslot-values state instance slot target km-int))]
                     (if (refused? sub)
                       sub
                       (let [local (local-values sub (assoc state :value own-value)
@@ -910,13 +1041,20 @@
                                                   km-int constraints)]
                             (if (refused? mid)
                               mid
-                              (let [folded (fold-rules mid (:value mid) rules single? appending?
-                                                       slot target km-int constraints)]
-                                (if (refused? folded)
-                                  folded
-                                  (let [retried (retry-recursive folded (:value folded) rules
-                                                                 single? appending? instance
-                                                                 slot target km-int)]
+                              (let [ruled (rules-for-fold mid inherited-rules own-value
+                                                          (:value mid) constraints slot
+                                                          single? no-inh? km-int)]
+                                (if (refused? ruled)
+                                  ruled
+                                  (let [folded (fold-rules ruled (:value ruled)
+                                                           (:rules ruled) single? appending?
+                                                           slot target km-int constraints)]
+                                    (if (refused? folded)
+                                      folded
+                                      (let [retried (retry-recursive folded (:value folded)
+                                                                     (:rules ruled)
+                                                                     single? appending? instance
+                                                                     slot target km-int)]
                                     (if (refused? retried)
                                       retried
                                       (if-not single?
@@ -938,7 +1076,7 @@
                                               (after-constraints recorded instance slot
                                                                  (term/km-list (:kept chosen))
                                                                  constraints own-constraints
-                                                                 km-int))))))))))))))))))))))))
+                                                                 km-int))))))))))))))))))))))))))
 
 (defn- numeric-list?
   [values]
@@ -1076,13 +1214,30 @@
     (class-chain state frame km-int)
     :else nil))
 
+(defn- tidy-classes
+  [kb slot values]
+  (cond
+    (frame/remove-subsumers-slot? kb slot)
+    (taxonomy/remove-subsumers kb values)
+    (frame/remove-subsumees-slot? kb slot)
+    (taxonomy/remove-subsumees kb values)
+    :else {:kb kb :value values}))
+
 (defn- class-walk
   "A computed class or subslot walk, or nil when slot is an ordinary slot.
 
-  superclasses, subclasses, instances, subslots, and superslots are
-  ordinary lookups, so a stored list is left as it was stored."
+  superclasses and subclasses are the immediate walks, with a more
+  general or more specific class removed. instances, subslots, and
+  superslots stay ordinary lookups, so a stored list is left as it
+  was stored."
   [state frame slot]
   (let [walked (cond
+                 (utils/eql? slot (symbol "superclasses"))
+                 (let [found (taxonomy/immediate-superclasses (:kb state) frame)]
+                   (tidy-classes (:kb found) slot (:value found)))
+                 (utils/eql? slot (symbol "subclasses"))
+                 (let [found (taxonomy/immediate-subclasses (:kb state) frame)]
+                   (tidy-classes (:kb found) slot (:value found)))
                  (utils/eql? slot (symbol "all-superclasses"))
                  (taxonomy/all-superclasses (:kb state) frame)
                  (utils/eql? slot (symbol "all-subclasses"))
@@ -1122,8 +1277,10 @@
   instance-of, classes, and all-classes are computed before a
   non-object is rejected. all-superclasses, all-subclasses,
   all-instances, all-subslots, and all-superslots are computed for a
-  knowledge-base object. superclasses, subclasses, instances, subslots,
-  and superslots are ordinary lookups. A slot already computed is read
+  knowledge-base object. superclasses and subclasses are the immediate
+  walks. instances, subslots, and superslots are ordinary lookups. A
+  knowledge-base object is
+  classified before the value is read. A slot already computed is read
   from the frame. km-int evaluates a local rule and a rule inherited
   from a class."
   [state frame slot km-int & {:keys [fail-mode] :or {fail-mode :fail}}]
@@ -1244,40 +1401,47 @@
              :else nil))
 
     :else
-    (if-let [classed (class-slot state frame slot km-int)]
-      classed
-      (cond
-        (not (kb/kb-object? frame))
-        (user-error state
-                    "(the %s of %s): Attempt to find a property of a non-kb-object %s."
-                    (print/km-format slot)
-                    (print/km-format frame)
-                    (print/km-format frame))
+    ;; A slot read classifies. The Lisp calls in get-slotvals are
+    ;; commented out and would classify only at creation and has.
+    (let [state (if (kb/kb-object? frame)
+                  (classify/classify state frame km-int)
+                  state)]
+      (if (refused? state)
+        state
+        (if-let [classed (class-slot state frame slot km-int)]
+          classed
+          (cond
+            (not (kb/kb-object? frame))
+            (user-error state
+                        "(the %s of %s): Attempt to find a property of a non-kb-object %s."
+                        (print/km-format slot)
+                        (print/km-format frame)
+                        (print/km-format frame))
 
-        (utils/eql? slot (symbol "cardinality"))
-        (let [card (frame/cardinality-of (:kb state) frame)]
-          (assoc state :value (when card (term/km-list card))))
+            (utils/eql? slot (symbol "cardinality"))
+            (let [card (frame/cardinality-of (:kb state) frame)]
+              (assoc state :value (when card (term/km-list card))))
 
-        (utils/eql? slot (symbol "fluent-status"))
-        (assoc state :value (term/km-list (frame/fluent-status (:kb state) frame)))
+            (utils/eql? slot (symbol "fluent-status"))
+            (assoc state :value (term/km-list (frame/fluent-status (:kb state) frame)))
 
-        (utils/eql? slot (symbol "inverse"))
-        (assoc state :value (term/km-list (frame/invert-slot (:kb state) frame)))
+            (utils/eql? slot (symbol "inverse"))
+            (assoc state :value (term/km-list (frame/invert-slot (:kb state) frame)))
 
-        (utils/eql? slot (symbol "supersituations"))
-        (situations/immediate-supersituations state frame km-int)
+            (utils/eql? slot (symbol "supersituations"))
+            (situations/immediate-supersituations state frame km-int)
 
-        (utils/eql? slot (symbol "all-supersituations"))
-        (situations/all-supersituations state frame km-int)
+            (utils/eql? slot (symbol "all-supersituations"))
+            (situations/all-supersituations state frame km-int)
 
-        :else
-        (if-let [walked (class-walk state frame slot)]
-          walked
-          (if-let [cached (cached-answer state frame slot)]
-            cached
-            (if (frame/ignore-slot-in-global? (:kb state) slot)
-              (situations-mode-error state frame slot)
-              (slotvals-from-kb state frame slot km-int))))))))
+            :else
+            (if-let [walked (class-walk state frame slot)]
+              walked
+              (if-let [cached (cached-answer state frame slot)]
+                cached
+                (if (frame/ignore-slot-in-global? (:kb state) slot)
+                  (situations-mode-error state frame slot)
+                  (slotvals-from-kb state frame slot km-int))))))))))
 
 (defn- frames-of
   [state frames slot km-int fail-mode]

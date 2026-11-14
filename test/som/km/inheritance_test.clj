@@ -1,5 +1,6 @@
 (ns som.km.inheritance-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
             [som.km.engine :as engine]
             [som.km.explain :as explain]
             [som.km.frame :as frame]
@@ -139,8 +140,8 @@
     (is (= (term "(_Cat1)") (:value direct)))
     (is (= #{(symbol "_Cat1") (symbol "_Tabby1")} (items (:value every))))
     (is (= (term "(t f)") (:value flags)))
-    (is (= (term "(Triple Pair)") (:value sequence)))
-    (is (nil? (:value thing)))
+    (is (= (term "(Pair Triple)") (:value sequence)))
+    (is (= (term "(t)") (:value thing)))
     (is (holds? (symbol "Cat") (:value broad)))))
 
 (deftest a-cycle-in-a-walk-is-a-broken-taxonomy
@@ -148,7 +149,8 @@
         slots (answer "(color has (subslots (hue)))")
         back (on slots "(hue has (subslots (color)))")]
     (is (= (term "(Cat)") (:value looped)))
-    (is (= (term "(Cat)") (:value (on looped "(the subclasses of Cat)"))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"own subclass"
+                          (on looped "(the subclasses of Cat)")))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"own subclass"
                           (on looped "(the all-subclasses of Cat)")))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"own subslot"
@@ -172,23 +174,31 @@
     (is (holds? (symbol "Color") (:value classes)))
     (is (empty? (:errors read)))))
 
-(deftest creation-and-definitions-stay-refused
+(deftest an-inherited-instance-is-created-and-remembered
   (let [ruled (answer "(every Cat has (friend ((a Cat))))")
         cat (on ruled "(_Cat1 has (instance-of (Cat)))")
         friend (on cat "(the friend of _Cat1)")
         again (on friend "(the friend of _Cat1)")
+        name (term/car (:value friend))
+        classes (on friend (str "(the instance-of of " (term/symbol-name name) ")"))
         defined (answer "(every Cat has-definition (color (black)))")
         why (answer "(why)")
         created (answer "(a Cat)")
         bad (answer "(every 1 has (color (black)))")]
-    (is (= "not-ported" (:error friend)))
-    (is (= "not-ported" (:error again)))
-    (is (not (frame/already-done? (:kb friend) (symbol "_Cat1") (symbol "friend")
-                                  term/global-situation)))
-    (is (= "not-ported" (:error defined)))
+    (is (:ok friend))
+    (is (str/starts-with? (term/symbol-name name) "_Cat"))
+    (is (not= (symbol "_Cat1") name))
+    (is (= (:value friend) (:value again)))
+    (is (= (term "(Cat)") (:value classes)))
+    (is (frame/already-done? (:kb friend) (symbol "_Cat1") (symbol "friend")
+                             term/global-situation))
+    (is (not= "not-ported" (:error defined)))
+    (is (nil? (:value defined)))
+    (is (some #(re-find #"instance-of" %) (:errors defined)))
     (is (nil? (:value why)))
     (is (not= "not-ported" (:error why)))
     (is (re-find #"There are no answers to explain" (:text why)))
-    (is (= "not-ported" (:error created)))
+    (is (:ok created))
+    (is (= (term "(_Cat1)") (:value created)))
     (is (nil? (:value bad)))
     (is (some #(re-find #"class name" %) (:errors bad)))))

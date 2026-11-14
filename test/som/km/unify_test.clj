@@ -181,14 +181,17 @@
     (is (nil? (:value tested)))
     (is (same-store? (:kb both) (:kb tested)))))
 
-(deftest creation-stays-unported-and-a-test-can-use-an-existential
-  (is (= "not-ported" (:error (answer "(a Cat)"))))
-  (let [tested (answer "(1 &? (a Thing))")
+(deftest a-value-unification-does-not-create-the-existential
+  (let [created (answer "(a Cat)")
+        tested (answer "(1 &? (a Thing))")
         combined (answer "(1 & (a Coordinate))")]
+    (is (:ok created))
+    (is (= (term "(_Cat1)") (:value created)))
     (is (= (term "(t)") (:value tested)))
     (is (not= "not-ported" (:error tested)))
     (is (= (term "(1)") (:value combined)))
-    (is (not= "not-ported" (:error combined)))))
+    (is (not= "not-ported" (:error combined)))
+    (is (not (frame/known-frame? (:kb combined) (symbol "_Coordinate1"))))))
 
 (deftest abort-stops-at-the-failed-unification
   (let [before (answer "t")

@@ -82,8 +82,8 @@
 (defn report-long
   "The longer statistics text. No prompt command prints it.
 
-  Classifications attempted and succeeded stay 0. The classifier that
-  would increment them is not ported."
+  The classification lines count attempts and successes. A query with
+  no definition and no slotted prototype leaves both at 0."
   [kb query]
   (let [nanos (elapsed-nanos query)
         seconds (/ (double nanos) 1.0e9)

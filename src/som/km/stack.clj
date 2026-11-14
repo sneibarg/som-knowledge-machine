@@ -392,9 +392,6 @@
       (every-kb-object? (term/car sets)) (term/car sets)
       :else (recur (term/cdr sets)))))
 
-(def ^:private recovery-message
-  "The loop's remaining expression is not evaluated yet.")
-
 (defn- mark-looping
   [query]
   (assoc query :looping? true))
@@ -409,14 +406,16 @@
   :looping? on the query becomes true. reason is :loop-detected, the
   default, or :depth-limit-reached. (the slot of frame), including a
   path rewritten to that form, returns the values already stored when
-  every value is fully evaluated. A value that still needs the
-  interpreter is not evaluated: :value is nil and :message says so.
-  &? and &+? return (t) for either reason. Another value unification
-  returns a list of the first knowledge-base object in the expression,
-  when there is one. A && expression returns the first set whose
-  elements are all knowledge-base objects. Any other goal returns nil.
-  Nothing is printed. The depth limit itself is applied by the
-  interpreter, which is not run here."
+  every value is fully evaluated. A stored value that still needs
+  evaluation, and is not itself the current goal, is returned as
+  :evaluate together with :slot and :instance. The interpreter
+  evaluates that residue and writes it back. A residue that is itself
+  looping returns nil and does not name :evaluate. &? and &+? return
+  (t) for either reason. Another value unification returns a list of
+  the first knowledge-base object in the expression, when there is
+  one. A && expression returns the first set whose elements are all
+  knowledge-base objects. Any other goal returns nil. Nothing is
+  printed. The depth limit itself is applied by the interpreter."
   [kb query expr & {:keys [reason] :or {reason :loop-detected}}]
   (let [query (query-of query)
         canonical (km-canonicalize expr)]
@@ -434,11 +433,11 @@
             vals (:value found)]
         (if (every-fully-evaluated? vals)
           (loop-result (:kb found) (:query found) vals)
-          (let [residual (kb/vals-to-val vals)]
+          (let [residual (kb/vals-to-val vals)
+                blocked (loop-result (:kb found) (:query found) nil)]
             (if (looping-on? (:kb found) (:query found) residual)
-              (loop-result (:kb found) (:query found) nil)
-              (-> (loop-result (:kb found) (:query found) nil)
-                  (assoc :message recovery-message))))))
+              blocked
+              (assoc blocked :evaluate residual :slot slot :instance instance)))))
 
       (and (term/cons? expr)
            (kb/val-unification-operator? (second-el expr)))

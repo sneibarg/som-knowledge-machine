@@ -8,11 +8,19 @@
   and lookup, unification, constraint checks, subsumption, and the
   commands from the goal-stack step are evaluated. (the Class with ...)
   searches instances already stored. (the+ Class with ...) searches and
-  then tries to create, which is still refused. (every Class has ...)
+  then creates an instance when the search misses. (every Class has ...)
   stores a rule that a slot read inherits. (a-prototype Class) builds a
-  prototype, and a later slot read clones it. (a Class) does that only
-  while a prototype is being built, except (a Situation) and (a Theory),
-  which create an instance either way. (why) prints a stored
+  prototype, and a later slot read clones it. (a Class) creates an
+  anonymous instance. In prototype mode that instance is a participant.
+  (every Class has-definition ...) stores a definition, and an instance
+  is classified against it. (if ...) chooses a branch. allof, oneof,
+  forall, and the sequence and bag forms walk a collection. called
+  keeps the values that carry that tag. (the Class slot of frame)
+  keeps the values of that class. An instance also-has, also-hasnt, and
+  now-has edit that instance. (the1 ...), (theNth ...), append, and
+  reverse read or build a sequence. (the-class Class) answers that
+  description.
+  (why) prints a stored
   explanation as a KM form. (justify) prints that form too, unless
   justify-leaves is on, in which case a leaf is one English sentence.
   (get-justification) returns the same text. (make-sentence),
@@ -32,6 +40,7 @@
   interactive debugger is not entered."
   (:require [clojure.string :as str]
             [som.km.anglify :as anglify]
+            [som.km.classify :as classify]
             [som.km.errors :as errors]
             [som.km.explain :as explain]
             [som.km.frame :as frame]
@@ -229,6 +238,41 @@
     (some? (:message result)) (assoc :message (:message result))
     (some? (:text result)) (assoc :text (:text result))))
 
+(defn- recover-loop
+  "Evaluate a residue that is not the current goal, and store it.
+
+  dont-cache-values on the slot leaves the stored expression in place.
+  A refusal from the residue is returned as it is. A nil answer is
+  stored. :errors from that evaluation stay on the result."
+  [state handled]
+  (if-not (contains? handled :evaluate)
+    (use-result state handled)
+    (let [base (assoc state
+                      :kb (:kb handled)
+                      :query (or (:query handled) (:query state)))
+          evaluated (km-int base (:evaluate handled)
+                            :fail-mode :fail
+                            :check-for-looping true)]
+      (if (refused? evaluated)
+        evaluated
+        (let [flag (frame/get-vals (:kb evaluated)
+                                   (:slot handled)
+                                   (symbol "dont-cache-values")
+                                   :situation term/global-situation
+                                   :dereference? false
+                                   :query (:query evaluated))
+              written (if (some? (:value flag))
+                        flag
+                        (frame/put-vals (:kb flag)
+                                        (:instance handled)
+                                        (:slot handled)
+                                        (:value evaluated)
+                                        :query (:query evaluated)))]
+          (assoc evaluated
+                 :kb (:kb written)
+                 :query (or (:query written) (:query evaluated))
+                 :value (:value evaluated)))))))
+
 (defn- too-deep?
   [query]
   (let [depth (or (:depth query) 0)
@@ -266,10 +310,12 @@
 
   The stacks, the depth, the trace depth, and the looping flag are
   always cleared. The counters, including knowledge-base accesses, are
-  zeroed only when reset statistics is enabled. Tracing is reset either
-  way, so a trace left on comes back on. The object stack, the fail
-  mode, a caller's depth limit, and a caller's :on-error stay.
-  Installing inverses is left as the caller set it."
+  zeroed only when reset statistics is enabled. Inverse installation
+  is turned on with those counters. When reset statistics is disabled,
+  the caller's inverse flag stays. Tracing is reset either way, so a
+  trace left on comes back on. The object stack, the fail mode, a
+  caller's depth limit, and a caller's :on-error stay. reset and a
+  direct store do not come through here, so they leave the flag."
   [kb query]
   (let [kb (trace/reset-trace kb)
         base (assoc (or query frame/empty-query)
@@ -281,7 +327,7 @@
                     :profiling? false)
         now (System/nanoTime)]
     (if (stats/reset-enabled? kb)
-      {:kb (assoc-in kb [:runtime :kb-accesses] 0)
+      {:kb (frame/set-installing-inverses (assoc-in kb [:runtime :kb-accesses] 0) true)
        :query (assoc base
                      :classification-inferences 0
                      :query-directed-inferences 0
@@ -509,7 +555,10 @@
         (= fail-mode :error)
         (report-error :user-error "No values found for %s!" (print/km-format cleaned)))
 
-      (and (kb/constraint-expr? cleaned) (not (kb/retain-expr? cleaned)))
+      ;; sometimes is a constraint, and its body is evaluated.
+      (and (kb/constraint-expr? cleaned)
+           (not (kb/retain-expr? cleaned))
+           (not (kb/sometimes? cleaned)))
       (cond-> (assoc state :value nil)
         (= fail-mode :error)
         (report-error :user-error "No values found for %s!" (print/km-format cleaned)))
@@ -536,7 +585,7 @@
       (and check-for-looping (stack/looping-on? kb query commented))
       (let [traced (trace/km-trace state :comment "Looping on ~a!" [cleaned])
             handled (stack/handle-looping (:kb traced) (:query traced) cleaned)]
-        (use-result traced handled))
+        (recover-loop traced handled))
 
       (too-deep? query)
       (let [traced (trace/km-trace state :comment
@@ -544,7 +593,7 @@
                                    [cleaned])
             handled (stack/handle-looping (:kb traced) (:query traced) cleaned
                                           :reason :depth-limit-reached)]
-        (use-result traced handled))
+        (recover-loop traced handled))
 
       :else nil)))
 
@@ -784,46 +833,70 @@
       expanded
       (assoc expanded :value (term/km-list instance)))))
 
-(defn- situation-or-theory?
-  [class]
-  (and (kb/kb-object? class)
-       (or (utils/eql? class (symbol "Situation"))
-           (utils/eql? class (symbol "Theory")))))
+(defn- changed-slot-names
+  "The slot names in slotsvals, or nil when that list is empty.
+
+  Dropping instance-of leaves nil for a bare (a Class), so that
+  creation does not classify."
+  [slotsvals drop-instance-of?]
+  (loop [pairs slotsvals
+         acc []]
+    (cond
+      (or (nil? pairs) (not (term/cons? pairs)))
+      (when (seq acc) (term/build-list acc nil))
+      :else
+      (let [slot (frame/slot-in (term/car pairs))]
+        (recur (term/cdr pairs)
+               (if (and drop-instance-of?
+                        (utils/eql? slot (symbol "instance-of")))
+                 acc
+                 (conj acc slot)))))))
+
+(defn- after-create
+  "Classify a new instance, then keep the created name as the value.
+
+  A refusal is returned as it is. A bare (a Class) passes no slot names."
+  [state slotsvals]
+  (cond
+    (or (refused? state) (nil? (:value state))) state
+    :else
+    (let [instance (:value state)
+          classed (classify/classify state instance km-int
+                                     :slots-that-changed
+                                     (changed-slot-names slotsvals true))]
+      (if (refused? classed)
+        classed
+        (assoc classed :value instance)))))
 
 (defn- a-handler
-  "Create a participant while a prototype is open.
+  "Create an anonymous instance of class.
 
-  (a Situation) and (a Theory) create an instance outside that mode.
-  (a Cat) stays refused."
+  The name is a Skolem. Storing it puts that name on the object stack.
+  In prototype mode the instance is a participant. A bare (a Class)
+  does not classify. called is its own form."
   [state pieces]
-  (cond
-    (frame/curr-prototype (:kb state))
-    (listed (prototypes/create-instance state (first pieces) nil))
-    (situation-or-theory? (first pieces))
-    (listed (prototypes/create-instance state (first pieces) nil))
-    :else (refuse state pieces)))
+  (listed (after-create (prototypes/create-instance state (first pieces) nil) nil)))
 
 (defn- a-with-handler
-  "Create a participant and evaluate the paths in its slots.
+  "Create an instance and store its slot pairs.
 
-  (a Situation with ...) and (a Theory with ...) create an instance
-  outside prototype mode and do not evaluate those paths. (a Cat with
-  ...) stays refused. called stays refused."
+  In prototype mode the paths on the object stack are evaluated, which
+  creates nested participants. Outside that mode a path stays stored
+  until the slot is read."
   [state pieces]
   (let [[class slotsvals] pieces]
-    (cond
-      (frame/curr-prototype (:kb state))
-      (let [created (prototypes/create-instance state class slotsvals)]
+    (if (frame/curr-prototype (:kb state))
+      (let [created (after-create (prototypes/create-instance state class slotsvals)
+                                  slotsvals)]
         (cond
           (refused? created) created
           (nil? (:value created)) created
           :else (expand-prototype-paths created (:value created))))
-      (situation-or-theory? class)
       (let [[checked ok?] (slotsvals-ok? state slotsvals)]
         (if-not ok?
           checked
-          (listed (prototypes/create-instance checked class slotsvals))))
-      :else (refuse state pieces))))
+          (listed (after-create (prototypes/create-instance checked class slotsvals)
+                                slotsvals)))))))
 
 (defn- a-prototype-handler
   "(a-prototype Class) is (a-prototype Class with)."
@@ -866,7 +939,111 @@
       expanded
       (assoc expanded :value (term/km-list (symbol "t"))))))
 
-(defn- has-handler
+(defn- own-slots
+  "Store own slot values. has, also-has, and now-has share this.
+
+  combine is nil, appending, or overwriting. classify-all? is now-has:
+  the Lisp calls classify with no slot list, so every definition is
+  eligible. paths? evaluates paths while a prototype is open. The Lisp
+  now-has leaves that call commented out."
+  [head combine classify-all? paths?]
+  (fn [state pieces]
+    (let [[instance-expr slotsvals] pieces
+          unique (km-unique-int state instance-expr :fail-mode :error)
+          instance (:value unique)]
+      (cond
+        (refused? unique) unique
+        (not (kb/kb-object? instance))
+        (-> (report-error unique :user-error
+                          "%s%n%s isn't/doesn't evaluate to a KB object name."
+                          (print/km-format (term/build-list [instance-expr head] slotsvals))
+                          (print/km-format instance-expr))
+            (assoc :value nil))
+        :else
+        (let [[checked ok?] (slotsvals-ok? unique slotsvals)]
+          (if-not ok?
+            checked
+            (try
+              (let [stored (frame/add-slotsvals (:kb checked) instance
+                                                (explain/convert-comments slotsvals)
+                                                :combine-values-by combine
+                                                :query (:query checked)
+                                                :errors (:errors checked)
+                                                :warnings (:warnings checked)
+                                                :error-structures (:error-structures checked))]
+                (if (refused? stored)
+                  stored
+                  (let [done (assoc checked
+                                    :kb (frame/un-done (:kb stored) instance)
+                                    :query (:query stored)
+                                    :errors (vec (or (:errors stored) []))
+                                    :warnings (vec (or (:warnings stored) []))
+                                    :error-structures (vec (or (:error-structures stored) []))
+                                    :value (term/km-list instance))
+                        classed (if classify-all?
+                                  (classify/classify done instance km-int)
+                                  (classify/classify done instance km-int
+                                                     :slots-that-changed
+                                                     (changed-slot-names slotsvals false)))]
+                    (cond
+                      (refused? classed) classed
+                      (and paths? (frame/curr-prototype (:kb classed)))
+                      (expand-prototype-paths classed instance)
+                      :else classed))))
+              (catch clojure.lang.ExceptionInfo thrown
+                (if (errors/abort-exception? thrown)
+                  (throw thrown)
+                  (-> (report-error checked :user-error "%s" (.getMessage thrown))
+                      (assoc :value nil)))))))))))
+
+(def ^:private has-handler
+  (own-slots (symbol "has") nil false true))
+
+(defn- every-also-hasnt
+  "also-hasnt is refused on a class. The instance expression is not evaluated."
+  [state pieces]
+  (let [[instance-expr slotsvals] pieces]
+    (-> (report-error state :user-error
+                      "%s:%nCan't use also-hasnt with an \"every\" expression (can only use it with instances, not classes)"
+                      (print/km-format
+                       (term/build-list [(symbol "every") instance-expr (symbol "also-hasnt")]
+                                        slotsvals)))
+        (assoc :value nil))))
+
+(defn- delete-values
+  [state instance slot vals]
+  (loop [vals vals
+         current state]
+    (cond
+      (nil? vals) current
+      (not (term/cons? vals))
+      (throw (ex-info "This list is dotted." {:tail vals}))
+      :else
+      (let [gone (frame/delete-val (:kb current) instance slot (term/car vals)
+                                   :query (:query current))]
+        (recur (term/cdr vals)
+               (assoc current :kb (:kb gone) :query (:query gone)))))))
+
+(defn- delete-slots
+  [state instance slotsvals]
+  (loop [pairs slotsvals
+         current state]
+    (cond
+      (nil? pairs)
+      (assoc current
+             :kb (frame/un-done (:kb current) instance)
+             :value (term/km-list instance))
+      (not (term/cons? pairs))
+      (throw (ex-info "This list is dotted." {:tail pairs}))
+      :else
+      (let [pair (term/car pairs)]
+        (recur (term/cdr pairs)
+               (delete-values current instance (frame/slot-in pair) (frame/vals-in pair)))))))
+
+(defn- also-hasnt-handler
+  "Delete the named values. A missing value is left in place.
+
+  The Lisp object-name error reprints also-has, not also-hasnt."
   [state pieces]
   (let [[instance-expr slotsvals] pieces
         unique (km-unique-int state instance-expr :fail-mode :error)
@@ -876,7 +1053,8 @@
       (not (kb/kb-object? instance))
       (-> (report-error unique :user-error
                         "%s%n%s isn't/doesn't evaluate to a KB object name."
-                        (print/km-format (term/build-list [instance-expr (symbol "has")] slotsvals))
+                        (print/km-format
+                         (term/build-list [instance-expr (symbol "also-has")] slotsvals))
                         (print/km-format instance-expr))
           (assoc :value nil))
       :else
@@ -884,30 +1062,12 @@
         (if-not ok?
           checked
           (try
-            (let [stored (frame/add-slotsvals (:kb checked) instance
-                                              (explain/convert-comments slotsvals)
-                                              :query (:query checked)
-                                              :errors (:errors checked)
-                                              :warnings (:warnings checked)
-                                              :error-structures (:error-structures checked))]
-              (if (refused? stored)
-                stored
-                ;; A has-definition is still refused, so classification
-                ;; does not reassign an instance's class. The flags stay
-                ;; on for the step that stores definitions.
-                (let [done (assoc checked
-                                  :kb (frame/un-done (:kb stored) instance)
-                                  :query (:query stored)
-                                  :errors (vec (or (:errors stored) []))
-                                  :warnings (vec (or (:warnings stored) []))
-                                  :error-structures (vec (or (:error-structures stored) []))
-                                  :value (term/km-list instance))]
-                  (if (frame/curr-prototype (:kb done))
-                    (expand-prototype-paths done instance)
-                    done))))
+            (delete-slots checked instance slotsvals)
             (catch clojure.lang.ExceptionInfo thrown
-              (-> (report-error checked :user-error "%s" (.getMessage thrown))
-                  (assoc :value nil)))))))))
+              (if (errors/abort-exception? thrown)
+                (throw thrown)
+                (-> (report-error checked :user-error "%s" (.getMessage thrown))
+                    (assoc :value nil))))))))))
 
 (defn- every-slots
   "Store member rules on a class. has, also-has, and now-has share this.
@@ -1530,6 +1690,18 @@
   (-> state
       (update :kb #(frame/set-are-some % :defaults true))
       (assoc :value nil)))
+
+(defn- sometimes-handler
+  "Evaluate the body.
+
+  A stored sometimes reaches this handler when the slot's value list
+  is read. While a constraint is being enforced, sometimes answers the
+  symbol t and this handler is not used."
+  [state pieces]
+  (km-int state (first pieces)
+          :fail-mode (:fail-mode state)
+          :target (:target state)
+          :rewrite? true))
 
 (defn- sanity-handler
   [state _]
@@ -2437,15 +2609,965 @@
                               (stats/profile-report-text (:kb ran) 100)))
           (assoc-in [:query :profiling?] false)))))
 
+(defn- pair-for
+  "The (slot (values)) pair named slot, or nil."
+  [slotsvals slot]
+  (loop [pairs slotsvals]
+    (cond
+      (or (nil? pairs) (not (term/cons? pairs))) nil
+      (utils/eql? slot (frame/slot-in (term/car pairs))) (term/car pairs)
+      :else (recur (term/cdr pairs)))))
+
+(defn- atomic-classes?
+  "True when every parent is a knowledge-base object.
+
+  An empty parent list is true, and the missing instance-of check
+  then applies."
+  [parents]
+  (loop [parents parents]
+    (cond
+      (nil? parents) true
+      (not (term/cons? parents)) false
+      (kb/kb-object? (term/car parents)) (recur (term/cdr parents))
+      :else false)))
+
+(defn- every-reprint
+  "The non-object error form. The instance form still starts with every."
+  [expr word slotsvals]
+  (term/build-list [(symbol "every") expr word] slotsvals))
+
+(defn- definition-reprint
+  [expr word slotsvals class-level?]
+  (if class-level?
+    (every-reprint expr word slotsvals)
+    (term/build-list [expr word] slotsvals)))
+
+(defn- prepared-definition
+  "The slot pairs stored for a definition.
+
+  A class definition keeps sources. An instance definition drops
+  comments and sources, and instance-of keeps its list of classes."
+  [frame slotsvals class-level?]
+  (if class-level?
+    (explain/convert-comments
+     (explain/annotate-slotsvals slotsvals (explain/make-source frame)))
+    (explain/desource-decomment slotsvals)))
+
+(defn- definition-parents
+  [slots0 class-level?]
+  (let [values (frame/vals-in (pair-for slots0 (symbol "instance-of")))]
+    (if class-level?
+      (explain/desource-decomment values :delistify? false)
+      values)))
+
+(defn- undone-instances
+  [state class]
+  (let [found (taxonomy/all-instances (:kb state) class)]
+    (loop [rest (:value found)
+           kb (:kb found)]
+      (if (or (nil? rest) (not (term/cons? rest)))
+        (assoc state :kb kb)
+        (recur (term/cdr rest) (frame/un-done kb (term/car rest)))))))
+
+(defn- answer-frame
+  [state frame]
+  (assoc state :value (term/km-list frame)))
+
+(defn- store-definition
+  "Store or remove a definition, then classify an instance.
+
+  now-has-definition deletes the previous definition first. An empty
+  now-has-definition removes it and leaves the definitions flag as it
+  is. A class definition does not classify the instances it names."
+  [state frame original slots0 parents class-level? now?]
+  (let [facet (if class-level?
+                (symbol "member-definition")
+                (symbol "own-definition"))
+        state (if now?
+                (classify/remove-definition state frame facet)
+                state)]
+    (if (nil? parents)
+      (answer-frame state frame)
+      (let [stored (frame/add-slotsvals (:kb state) frame slots0
+                                        :facet facet
+                                        :bind-self? true
+                                        :query (:query state)
+                                        :errors (:errors state)
+                                        :warnings (:warnings state)
+                                        :error-structures (:error-structures state))]
+        (if (refused? stored)
+          stored
+          (let [pointed (classify/point-parents
+                         (assoc state
+                                :kb (:kb stored)
+                                :query (:query stored)
+                                :errors (vec (or (:errors stored) []))
+                                :warnings (vec (or (:warnings stored) []))
+                                :error-structures (vec (or (:error-structures stored) [])))
+                         frame parents facet)
+                flagged (update pointed :kb #(frame/set-are-some % :definitions true))
+                cleared (if class-level?
+                          (undone-instances flagged frame)
+                          (assoc flagged :kb (frame/un-done (:kb flagged) frame)))
+                answered (answer-frame cleared frame)]
+            (if class-level?
+              answered
+              (let [classed (classify/classify answered frame km-int
+                                               :slots-that-changed
+                                               (changed-slot-names original false))]
+                (if (refused? classed)
+                  classed
+                  (answer-frame classed frame))))))))))
+
+(defn- definition-handler
+  "has-definition and now-has-definition, for a class or one instance.
+
+  class-level? selects the member definition. The instance form's
+  non-object error still prints every."
+  [word class-level?]
+  (fn [state pieces]
+    (let [[expr slotsvals] pieces
+          unique (km-unique-int state expr :fail-mode :error)
+          frame (:value unique)
+          now? (utils/eql? word (symbol "now-has-definition"))]
+      (cond
+        (refused? unique) unique
+        (not (kb/kb-object? frame))
+        (-> (report-error unique :user-error
+                          (if class-level?
+                            "%s%n%s isn't/doesn't evaluate to a class name."
+                            "%s%n%s isn't/doesn't evaluate to a KB object name.")
+                          (print/km-format (every-reprint expr word slotsvals))
+                          (print/km-format expr))
+            (assoc :value nil))
+        :else
+        (let [[checked ok?] (slotsvals-ok? unique slotsvals)]
+          (if-not ok?
+            checked
+            (try
+              (let [slots0 (prepared-definition frame slotsvals class-level?)
+                    parents (definition-parents slots0 class-level?)]
+                (cond
+                  (not (atomic-classes? parents))
+                  (-> (report-error checked :user-error
+                                    "%s%nThe `instance-of' slot-filler(s) in a %s must be atomic class name(s) only."
+                                    (print/km-format (definition-reprint expr word slots0 class-level?))
+                                    (term/symbol-name word))
+                      (assoc :value nil))
+                  (and (nil? parents)
+                       (or (not now?) (some? slots0)))
+                  (-> (report-error checked :user-error
+                                    "%s%nYou must specify an `instance-of' slot value for a %s, pointing to the parent class(es)!"
+                                    (print/km-format (definition-reprint expr word slots0 class-level?))
+                                    (term/symbol-name word))
+                      (assoc :value nil))
+                  :else
+                  (store-definition checked frame slotsvals slots0 parents
+                                    class-level? now?)))
+              (catch clojure.lang.ExceptionInfo thrown
+                (if (errors/abort-exception? thrown)
+                  (throw thrown)
+                  (-> (report-error checked :user-error "%s" (.getMessage thrown))
+                      (assoc :value nil)))))))))))
+
+(defn- the-class-handler
+  "Answer the description (the-class Class). It is not evaluated."
+  [state pieces]
+  (process-unquotes state
+                    (term/km-list (term/km-list (symbol "the-class") (first pieces)))))
+
+(defn- the-class-with-handler
+  "Answer (the-class Class with slots). The slots are not evaluated."
+  [state pieces]
+  (let [[class slotsvals] pieces
+        [checked ok?] (slotsvals-ok? state slotsvals)]
+    (if-not ok?
+      checked
+      (process-unquotes checked
+                        (term/km-list
+                         (term/build-list [(symbol "the-class") class (symbol "with")]
+                                          slotsvals))))))
+
+(def ^:private it-symbol (symbol "It"))
+(def ^:private it2-symbol (symbol "It2"))
+
+(def ^:private drop-sentinel
+  "The marker a failed sequence constraint leaves.
+
+  The walk drops this symbol. A real value equal to the symbol
+  to-remove is dropped with it."
+  (symbol "to-remove"))
+
+(defn- again
+  "Evaluate expr again with the caller's fail mode, target, and rewrite."
+  [state expr]
+  (km-int state expr
+          :fail-mode (:fail-mode state)
+          :target (:target state)
+          :rewrite? true))
+
+(defn- false-test?
+  "True when the whole answer is nil, the symbol f, or the symbol F.
+
+  km-int of the atom f returns the list (f). That list is not the atom,
+  so (if f then ... else ...) takes the then branch."
+  [answer]
+  (or (nil? answer)
+      (utils/eql? answer (symbol "f"))
+      (utils/eql? answer (symbol "F"))))
+
+(defn- if-then-handler
+  [state pieces]
+  (let [[condition action] pieces]
+    (again state (term/km-list (symbol "if") condition (symbol "then") action
+                               (symbol "else") nil))))
+
+(defn- if-else-handler
+  [state pieces]
+  (let [[condition action altaction] pieces
+        fail-mode (:fail-mode state)
+        tested (km-int state condition)]
+    (cond
+      (refused? tested) tested
+      (false-test? (:value tested))
+      (km-int tested altaction :fail-mode fail-mode)
+      :else (km-int tested action :fail-mode fail-mode))))
+
+(defn- demand-var
+  "Nil when var is a KM variable. Otherwise the variable error.
+
+  The sentence says Second argument. The printed expression is the
+  whole form, including when the variable is the first argument."
+  [state var expr]
+  (when-not (kb/km-var? var)
+    (-> (report-error state :user-error
+                      "%s: Second argument should be a variable (e.g., ?x)!"
+                      (print/km-format expr))
+        (assoc :value nil))))
+
+(defn- project-set
+  "Append the value of each member that passes the constraint.
+
+  Nil elements of those values are dropped. A refusal stops the walk."
+  [state members var constraint value-expr]
+  (loop [members members
+         state state
+         acc []]
+    (cond
+      (refused? state) state
+      (nil? members)
+      (assoc state :value (term/build-list (filterv some? acc) nil))
+      (not (term/cons? members))
+      (throw (ex-info "This list is dotted." {:tail members}))
+      :else
+      (let [member (term/car members)
+            tested (km-int state (subst-symbol member var constraint))]
+        (cond
+          (refused? tested) tested
+          (nil? (:value tested))
+          (recur (term/cdr members) tested acc)
+          :else
+          (let [produced (km-int tested (subst-symbol member var value-expr))]
+            (if (refused? produced)
+              produced
+              (recur (term/cdr members)
+                     produced
+                     (into acc (utils/elements (:value produced)))))))))))
+
+(defn- every-member
+  "The first nil test answers nil. An empty collection answers (t).
+
+  A refusal stops the walk."
+  [state members var test]
+  (loop [members members
+         state state]
+    (cond
+      (refused? state) state
+      (nil? members) (assoc state :value (term/km-list (symbol "t")))
+      (not (term/cons? members))
+      (throw (ex-info "This list is dotted." {:tail members}))
+      :else
+      (let [tested (km-int state (subst-symbol (term/car members) var test))]
+        (cond
+          (refused? tested) tested
+          (nil? (:value tested)) (assoc tested :value nil)
+          :else (recur (term/cdr members) tested))))))
+
+(defn- first-where
+  "The first member whose test is non-nil, as a one-element list.
+
+  A miss answers nil. A refusal stops the walk."
+  [state members var test]
+  (loop [members members
+         state state]
+    (cond
+      (refused? state) state
+      (nil? members) (assoc state :value nil)
+      (not (term/cons? members))
+      (throw (ex-info "This list is dotted." {:tail members}))
+      :else
+      (let [member (term/car members)
+            tested (km-int state (subst-symbol member var test))]
+        (cond
+          (refused? tested) tested
+          (some? (:value tested)) (assoc tested :value (term/km-list member))
+          :else (recur (term/cdr members) tested))))))
+
+(defn- forall-body
+  [state set constraint value var]
+  (let [members (km-int state set)]
+    (if (refused? members)
+      members
+      (project-set members (:value members) var constraint value))))
+
+(defn- collection-shape?
+  [values head]
+  (and (term/singleton? values)
+       (if (= head :seq)
+         (kb/km-seq? (term/car values))
+         (kb/km-bag? (term/car values)))))
+
+(defn- project-elements
+  "Map one sequence or bag.
+
+  A sequence keeps a nil value and drops a failed constraint. A bag
+  drops both. A refusal stops the walk."
+  [state elements constraint value var sequence?]
+  (loop [elements elements
+         state state
+         acc []]
+    (cond
+      (refused? state) state
+      (nil? elements)
+      (assoc state :value
+             (term/km-list
+              (term/cons-cell (if sequence? :seq :bag)
+                              (term/build-list
+                               (if sequence?
+                                 (filterv #(not (utils/eql? drop-sentinel %)) acc)
+                                 (filterv some? acc))
+                               nil))))
+      (not (term/cons? elements))
+      (throw (ex-info "This list is dotted." {:tail elements}))
+      :else
+      (let [member (term/car elements)
+            tested (km-int state (subst-symbol member var constraint))]
+        (cond
+          (refused? tested) tested
+          (nil? (:value tested))
+          (recur (term/cdr elements)
+                 tested
+                 (if sequence? (conj acc drop-sentinel) acc))
+          :else
+          (let [produced (km-int tested (subst-symbol member var value))]
+            (if (refused? produced)
+              produced
+              (let [one (kb/vals-to-val (:value produced))]
+                (recur (term/cdr elements)
+                       produced
+                       (if (and (not sequence?) (nil? one))
+                         acc
+                         (conj acc one)))))))))))
+
+(defn- project-collection
+  "Project one sequence or bag.
+
+  empty-ok? is the form without a variable: a null collection answers
+  nil and records no error. A variable form has already been checked,
+  and nil fails the single-sequence test. check-var? runs before the
+  collection is evaluated."
+  [state coll constraint value var head empty-ok? check-var? reprint]
+  (if-let [bad (when check-var? (demand-var state var reprint))]
+    bad
+    (let [found (km-int state coll)]
+      (cond
+        (refused? found) found
+        (and empty-ok? (nil? (:value found))) found
+        (not (collection-shape? (:value found) head))
+        (-> (report-error found :user-error
+                          (if (= head :seq)
+                            "%s: %s should evaluate to a single sequence (:seq ... ...)!"
+                            "%s: %s should evaluate to a single bag (:bag ... ...)!")
+                          (print/km-format reprint)
+                          (print/km-format coll))
+            (assoc :value nil))
+        :else
+        (project-elements found
+                          (kb/seq-elements (term/car (:value found)))
+                          constraint value var (= head :seq))))))
+
+(defn- where-t
+  "Insert where t before the last argument and evaluate again."
+  [head]
+  (fn [state pieces]
+    (let [value (peek pieces)
+          front (pop pieces)]
+      (again state (term/build-list
+                    (into [head]
+                          (concat front [(symbol "where") (symbol "t") value]))
+                    nil)))))
+
+(defn- where-t-var
+  "The ?var in form of where-t. A bad variable is reported first."
+  [head]
+  (fn [state pieces]
+    (let [var (first pieces)
+          rest (vec (rest pieces))
+          expr (term/build-list (into [head var (symbol "in")] rest) nil)]
+      (if-let [bad (demand-var state var expr)]
+        bad
+        (let [value (peek rest)
+              front (pop rest)]
+          (again state
+                 (term/build-list
+                  (into [head var (symbol "in")]
+                        (concat front [(symbol "where") (symbol "t") value]))
+                  nil)))))))
+
+(defn- allof-where
+  [quantifier referent]
+  (fn [state pieces]
+    (let [[set test] pieces]
+      (again state (term/km-list quantifier set (symbol "where") test referent)))))
+
+(defn- allof-must
+  [referent]
+  (fn [state pieces]
+    (let [[set test] pieces
+          members (km-int state set)]
+      (if (refused? members)
+        members
+        (every-member members (:value members) referent test)))))
+
+(defn- allof-where-must
+  [head referent]
+  (fn [state pieces]
+    (let [[set test2 test] pieces
+          filtered (km-int state (term/km-list head set (symbol "where") test2))]
+      (if (refused? filtered)
+        filtered
+        (every-member filtered (:value filtered) referent test)))))
+
+(defn- oneof-where
+  [referent]
+  (fn [state pieces]
+    (let [[set test] pieces
+          members (km-int state set)]
+      (if (refused? members)
+        members
+        (first-where members (:value members) referent test)))))
+
+(defn- theoneof-of
+  [quantifier referent]
+  (fn [state pieces]
+    (let [[set test] pieces
+          unique (km-unique-int state
+                                (term/km-list quantifier set (symbol "where") test referent)
+                                :fail-mode (:fail-mode state)
+                                :target (:target state)
+                                :rewrite? true)]
+      (cond
+        (refused? unique) unique
+        (some? (:value unique))
+        (assoc unique :value (term/km-list (:value unique)))
+        :else unique))))
+
+(defn- forall-where
+  [referent]
+  (fn [state pieces]
+    (let [[set constraint value] pieces]
+      (forall-body state set constraint value referent))))
+
+(defn- seq-where
+  [head referent]
+  (fn [state pieces]
+    (let [[seq constraint value] pieces]
+      (project-collection state seq constraint value referent :seq true false
+                          (term/km-list head seq (symbol "where") constraint value)))))
+
+(defn- bag-where
+  [head referent]
+  (fn [state pieces]
+    (let [[bag constraint value] pieces]
+      (project-collection state bag constraint value referent :bag true false
+                          (term/km-list head bag (symbol "where") constraint value)))))
+
+(defn- allof-in-where
+  [state pieces]
+  (let [[var set test] pieces
+        expr (term/km-list (symbol "allof") var (symbol "in") set (symbol "where") test)]
+    (if-let [bad (demand-var state var expr)]
+      bad
+      (again state (term/km-list (symbol "forall") var (symbol "in") set
+                                 (symbol "where") test var)))))
+
+(defn- allof-must-in
+  [state pieces]
+  (let [[var set test] pieces
+        expr (term/km-list (symbol "allof") var (symbol "in") set (symbol "must") test)]
+    (if-let [bad (demand-var state var expr)]
+      bad
+      (let [members (km-int state set)]
+        (if (refused? members)
+          members
+          (every-member members (:value members) var test))))))
+
+(defn- allof-where-must-in
+  [state pieces]
+  (let [[var set test2 test] pieces
+        expr (term/km-list (symbol "allof") var (symbol "in") set
+                           (symbol "where") test2 (symbol "must") test)]
+    (if-let [bad (demand-var state var expr)]
+      bad
+      (let [filtered (km-int state
+                            (term/km-list (symbol "allof") var (symbol "in") set
+                                          (symbol "where") test2))]
+        (if (refused? filtered)
+          filtered
+          (every-member filtered (:value filtered) var test))))))
+
+(defn- oneof-in
+  [state pieces]
+  (let [[var set test] pieces
+        expr (term/km-list (symbol "oneof") var (symbol "in") set (symbol "where") test)]
+    (if-let [bad (demand-var state var expr)]
+      bad
+      (let [members (km-int state set)]
+        (if (refused? members)
+          members
+          (first-where members (:value members) var test))))))
+
+(defn- theoneof-in
+  [state pieces]
+  (let [[var set test] pieces
+        expr (term/km-list (symbol "theoneof") var (symbol "in") set
+                           (symbol "where") test)]
+    (if-let [bad (demand-var state var expr)]
+      bad
+      (let [unique (km-unique-int state
+                                  (term/km-list (symbol "forall") var (symbol "in") set
+                                                (symbol "where") test var)
+                                  :fail-mode (:fail-mode state)
+                                  :target (:target state)
+                                  :rewrite? true)]
+        (cond
+          (refused? unique) unique
+          (some? (:value unique))
+          (assoc unique :value (term/km-list (:value unique)))
+          :else unique)))))
+
+(defn- forall-in-where
+  [state pieces]
+  (let [[var set constraint value] pieces
+        expr (term/km-list (symbol "forall") var (symbol "in") set
+                           (symbol "where") constraint value)]
+    (if-let [bad (demand-var state var expr)]
+      bad
+      (forall-body state set constraint value var))))
+
+(defn- seq-in-where
+  [state pieces]
+  (let [[var seq constraint value] pieces]
+    (project-collection state seq constraint value var :seq false true
+                        (term/km-list (symbol "forall-seq") var (symbol "in") seq
+                                      (symbol "where") constraint value))))
+
+(defn- bag-in-where
+  [state pieces]
+  (let [[var bag constraint value] pieces]
+    (project-collection state bag constraint value var :bag false true
+                        (term/km-list (symbol "forall-bag") var (symbol "in") bag
+                                      (symbol "where") constraint value))))
+
+(defn- tags-cover?
+  "The state after both tag reads, and whether every tag is present.
+
+  A refusal is that state alone. An empty tag list keeps the value.
+  The slot reads still run."
+  [state val tags]
+  (let [called (km-int state (term/km-list (symbol "the") (symbol "called")
+                                           (symbol "of") val))]
+    (if (refused? called)
+      called
+      (let [named (:value called)
+            unique (km-int called
+                           (term/km-list (symbol "the") (symbol "uniquely-called")
+                                         (symbol "of") val))]
+        (if (refused? unique)
+          unique
+          [unique
+           (loop [need tags]
+             (cond
+               (nil? need) true
+               (not (term/cons? need)) false
+               (utils/member? (term/car need) 
+                              (utils/append-lists (term/km-list named (:value unique)))
+                              utils/equal?)
+               (recur (term/cdr need))
+               :else false))])))))
+
+(defn- keep-tagged
+  [state vals tags]
+  (loop [vals vals
+         state state
+         acc []]
+    (cond
+      (refused? state) state
+      (nil? vals) (assoc state :value (term/build-list acc nil))
+      (not (term/cons? vals))
+      (throw (ex-info "This list is dotted." {:tail vals}))
+      :else
+      (let [checked (tags-cover? state (term/car vals) tags)]
+        (if (refused? checked)
+          checked
+          (let [[next keep?] checked]
+            (recur (term/cdr vals)
+                   next
+                   (if keep? (conj acc (term/car vals)) acc))))))))
+
+(defn- called-handler
+  "Keep the values of expr that carry every tag.
+
+  The expression uses the default fail mode. The mode captured here is
+  used only when no value carries the tag, because a nested evaluation
+  replaces :fail-mode on the state it returns."
+  [state pieces]
+  (let [[expr tag] pieces
+        fail-mode (:fail-mode state)
+        found (km-int state expr)]
+    (if (refused? found)
+      found
+      (let [traced (if (some? (:value found))
+                     (trace/km-trace found :comment
+                                     "Now find just those value(s) whose tag = ~a..."
+                                     [tag])
+                     found)
+            picked (keep-tagged traced (:value traced) (kb/val-to-vals tag))]
+        (cond
+          (refused? picked) picked
+          (some? (:value picked)) picked
+          (= fail-mode :error)
+          (-> (report-error picked :user-error
+                            "(%s called/uniquely-called %s): No values of %s (evaluates to %s) is called/uniquely-called %s!"
+                            (print/km-format expr)
+                            (print/km-format tag)
+                            (print/km-format expr)
+                            (print/km-format (:value found))
+                            (print/km-format (kb/val-to-vals tag)))
+              (assoc :value nil))
+          :else (assoc picked :value nil))))))
+
+(defn- uniquely-called-expr
+  [state pieces]
+  (let [[expr tag] pieces]
+    (again state (term/km-list expr (symbol "called") tag))))
+
+(defn- note-tags
+  [state constraints?]
+  (cond-> (update state :kb #(frame/set-are-some % :tags true))
+    constraints? (update :kb #(frame/set-are-some % :constraints true))))
+
+(defn- tag-error
+  [state class slot tag slots]
+  (let [expr (if (nil? slots)
+               (term/km-list (symbol "a") class slot tag)
+               (term/build-list [(symbol "a") class slot tag (symbol "with")] slots))
+        spaces (if (nil? slots) "    " "   ")]
+    (-> (report-error state :user-error
+                      (str "%s%n" spaces "- The tag `%s' must be an atom or a constraint!")
+                      (print/km-format expr)
+                      (print/km-format tag))
+        (assoc :value nil))))
+
+(defn- create-tagged
+  "Store the tag pair, classify, and list the new instance.
+
+  Paths are evaluated only for a with form while a prototype is open."
+  [state class slot tag slots paths?]
+  (let [pair (term/km-list slot (kb/val-to-vals tag))
+        slotsvals (term/cons-cell pair slots)
+        created (after-create (prototypes/create-instance state class slotsvals)
+                              slotsvals)]
+    (cond
+      (or (refused? created) (nil? (:value created))) created
+      (and paths? (some? (frame/curr-prototype (:kb created))))
+      (expand-prototype-paths created (:value created))
+      :else (listed created))))
+
+(defn- tagged-instance
+  [state pieces constraints? with?]
+  (let [class (first pieces)
+        tag (second pieces)
+        slots (when with? (nth pieces 2))
+        slot (if constraints? (symbol "uniquely-called") (symbol "called"))
+        noted (note-tags state constraints?)]
+    (if-not (kb/km-tag? tag)
+      (tag-error noted class slot tag (when with? slots))
+      (if-not with?
+        (create-tagged noted class slot tag nil false)
+        (let [[checked ok?] (slotsvals-ok? noted slots)]
+          (if-not ok?
+            checked
+            (create-tagged checked class slot tag slots true)))))))
+
+(defn- in-class
+  "Keep values whose class is target, in their original order.
+
+  The symbol * keeps every value."
+  [state values class]
+  (if (or (nil? values) (utils/eql? class (symbol "*")))
+    (assoc state :value values)
+    (loop [values values
+           state state
+           acc []]
+      (cond
+        (nil? values) (assoc state :value (term/build-list acc nil))
+        (not (term/cons? values))
+        (throw (ex-info "This list is dotted." {:tail values}))
+        :else
+        (let [val (term/car values)
+              under (taxonomy/isa? (:kb state) val class)]
+          (recur (term/cdr values)
+                 (assoc state :kb (:kb under))
+                 (if (:value under) (conj acc val) acc)))))))
+
+(defn- the-class-slot-handler
+  [state pieces]
+  (let [[class slot frameadd] pieces
+        fail0 (:fail-mode state)
+        target (:target state)]
+    (cond
+      (structured-slot? slot)
+      (let [start (km-int state frameadd
+                          :fail-mode fail0
+                          :target target
+                          :rewrite? true)]
+        (if (refused? start)
+          start
+          (let [walked (multidepth start (:value start) slot)]
+            (if (refused? walked)
+              walked
+              (in-class walked (:value walked) class)))))
+
+      (kb/path? slot)
+      (let [evaluated (km-unique-int state slot :fail-mode :error)]
+        (if (refused? evaluated)
+          evaluated
+          (km-int evaluated
+                  (term/km-list (symbol "the") class (:value evaluated)
+                                (symbol "of") frameadd)
+                  :fail-mode fail0
+                  :target target
+                  :rewrite? true)))
+
+      :else
+      (let [mode (if (contains? aggregation-slots slot) :fail fail0)
+            read (km-int state
+                         (term/km-list (symbol "the") slot (symbol "of") frameadd)
+                         :fail-mode mode
+                         :target target
+                         :rewrite? true)]
+        (if (refused? read)
+          read
+          (in-class read (:value read) class))))))
+
+(defn- nth-cell
+  "The element at index, counting from 0. A short list has none."
+  [value index]
+  (loop [value value
+         index index]
+    (cond
+      (or (nil? value) (not (term/cons? value))) nil
+      (zero? index) (term/car value)
+      :else (recur (term/cdr value) (dec index)))))
+
+(defn- list-length
+  [value]
+  (loop [value value
+         n 0]
+    (cond
+      (nil? value) n
+      (term/cons? value) (recur (term/cdr value) (inc n))
+      :else (throw (ex-info "This list is dotted." {:tail value})))))
+
+(defn- map-cells
+  [values f]
+  (loop [values values
+         acc []]
+    (cond
+      (nil? values) (term/build-list acc nil)
+      (not (term/cons? values))
+      (throw (ex-info "This list is dotted." {:tail values}))
+      :else (recur (term/cdr values) (conj acc (f (term/car values)))))))
+
+(defn- project-slot
+  "Map pick over the values, then evaluate that collection.
+
+  The read uses the caller's fail mode and target. The collected value
+  uses the default fail mode."
+  [pick]
+  (fn [state pieces]
+    (let [found (km-int state (first pieces)
+                        :fail-mode (:fail-mode state)
+                        :target (:target state)
+                        :rewrite? true)]
+      (if (refused? found)
+        found
+        (km-int found (kb/vals-to-val (map-cells (:value found) pick)))))))
+
+(defn- positional
+  "Rewrite (the1 slot of frame) to (the1 of (the slot of frame))."
+  [head]
+  (fn [state pieces]
+    (let [[slot frameadd] pieces]
+      (again state (term/km-list head (symbol "of")
+                                 (term/km-list (symbol "the") slot
+                                               (symbol "of") frameadd))))))
+
+(defn- position-index
+  "The positive integer, and the values of frameadd.
+
+  A refusal from the integer stops the read. Any other integer failure
+  still reads frameadd, then records the sentence. The sentence prints
+  (the <expr> of <frame>), for both theN and theNth, and it says
+  non-negative. 0 is rejected."
+  [state nexpr frameadd]
+  (let [indexed (km-unique-int state nexpr :fail-mode :error)]
+    (if (refused? indexed)
+      indexed
+      (let [found (km-int indexed frameadd
+                          :fail-mode (:fail-mode state)
+                          :target (:target state)
+                          :rewrite? true)
+            n (:value indexed)]
+        (cond
+          (refused? found) found
+          (and (integer? n) (>= n 1)) [found n]
+          :else
+          (-> (report-error found :user-error
+                            "Doing %s. %s should evaluate to a non-negative integer!"
+                            (print/km-format
+                             (term/km-list (symbol "the") nexpr (symbol "of") frameadd))
+                            (print/km-format nexpr))
+              (assoc :value nil)))))))
+
+(defn- the-n-handler
+  "The nth argument of one structured value.
+
+  the1, the2, and the3 take the argument whenever the value is
+  structured. theN also requires n to be inside the list, counting the
+  keyword. When that fails and n is 1, the whole value is kept."
+  [state pieces]
+  (let [[nexpr frameadd] pieces
+        ready (position-index state nexpr frameadd)]
+    (if-not (vector? ready)
+      ready
+      (let [[found n] ready]
+        (km-int found
+                (kb/vals-to-val
+                 (map-cells (:value found)
+                            (fn [value]
+                              (cond
+                                (and (term/structured-list? value)
+                                     (< n (list-length value)))
+                                (nth-cell value n)
+                                (= n 1) value)))))))))
+
+(defn- the-nth-handler
+  "The nth value, counting from 1. A missing place answers nil."
+  [state pieces]
+  (let [[nexpr frameadd] pieces
+        ready (position-index state nexpr frameadd)]
+    (if-not (vector? ready)
+      ready
+      (let [[found n] ready
+            vals (:value found)
+            chosen (nth-cell vals (dec n))]
+        (assoc found :value (when (and (<= n (list-length vals)) (some? chosen))
+                              (term/km-list chosen)))))))
+
+(defn- append-elements
+  "The elements one side contributes, and the state after any error.
+
+  A sequence or a bag contributes its elements. Nil contributes nothing.
+  Any other KM term contributes itself. Anything else records the
+  sentence and contributes nothing. The caller still builds a result."
+  [state left right failing value]
+  (cond
+    (or (kb/km-seq? value) (kb/km-bag? value)) [state (kb/seq-elements value)]
+    (nil? value) [state nil]
+    (kb/is-km-term? value) [state (term/km-list value)]
+    :else
+    [(-> (report-error state :user-error
+                       "(%s append %s): %s doesn't evaluate to an instance, sequence, or bag!"
+                       (print/km-format left)
+                       (print/km-format right)
+                       (print/km-format failing))
+         (assoc :value nil))
+     nil]))
+
+(defn- append-handler
+  [state pieces]
+  (let [[left right] pieces
+        one (km-unique-int state left)]
+    (if (refused? one)
+      one
+      (let [two (km-unique-int one right)]
+        (if (refused? two)
+          two
+          (let [seq1 (:value one)
+                seq2 (:value two)
+                [taken1 elts1] (append-elements two left right left seq1)
+                [taken2 elts2] (append-elements taken1 left right right seq2)
+                mixed? (or (and (kb/km-seq? seq1) (kb/km-bag? seq2))
+                           (and (kb/km-seq? seq2) (kb/km-bag? seq1)))
+                noted (if mixed?
+                        (-> (report-error taken2 :user-error
+                                          "(%s append %s): Elements should be both sequences or both bags!"
+                                          (print/km-format left)
+                                          (print/km-format right))
+                            (assoc :value nil))
+                        taken2)
+                head (cond
+                       mixed? :seq
+                       (or (kb/km-bag? seq1) (kb/km-bag? seq2)) :bag
+                       :else :seq)]
+            (assoc noted :value
+                   (term/km-list
+                    (term/cons-cell head
+                                    (utils/append-lists (term/km-list elts1 elts2)))))))))))
+
+(defn- reverse-handler
+  [state pieces]
+  (let [expr (first pieces)
+        found (km-unique-int state expr
+                             :fail-mode (:fail-mode state)
+                             :target (:target state)
+                             :rewrite? true)
+        seq (:value found)]
+    (cond
+      (refused? found) found
+      (nil? seq) (assoc found :value nil)
+      (kb/km-seq? seq)
+      (assoc found :value
+             (term/km-list
+              (term/cons-cell :seq
+                              (term/build-list (reverse (utils/elements (term/cdr seq))) nil))))
+      :else
+      (-> (report-error found :user-error
+                        "Attempting to reverse a non-sequence %s!%n[Sequences should be of the form (:seq <e1> ... <en>)]"
+                        (print/km-format expr))
+          (assoc :value nil)))))
+
 (def ^:private handlers
   (into
    [(entry ["the" "?slot" "of" "?frameadd"] the-handler)
     (entry ["a" "?class"] a-handler)
-    (later ["a" "?class" "called" "?tag"])
-    (later ["a" "?class" "uniquely-called" "?tag"])
+    (entry ["a" "?class" "called" "?tag"] #(tagged-instance %1 %2 false false))
+    (entry ["a" "?class" "uniquely-called" "?tag"] #(tagged-instance %1 %2 true false))
     (entry ["a" "?class" "with" "&rest"] a-with-handler)
-    (later ["a" "?class" "uniquely-called" "?tag" "with" "&rest"])
-    (later ["a" "?class" "called" "?tag" "with" "&rest"])
+    (entry ["a" "?class" "uniquely-called" "?tag" "with" "&rest"] #(tagged-instance %1 %2 true true))
+    (entry ["a" "?class" "called" "?tag" "with" "&rest"] #(tagged-instance %1 %2 false true))
     (entry ["a-prototype" "?class"] a-prototype-handler)
     (entry ["a-prototype" "?class" "with" "&rest"] a-prototype-with-handler)
     (entry ["end-prototype"] end-prototype-handler)
@@ -2474,10 +3596,12 @@
     (entry ["every" "?cexpr" "now-has" "&rest"]
            (every-slots (symbol "now-has") (symbol "overwriting")))
     (entry ["?instance-expr" "has" "&rest"] has-handler)
-    (later ["?instance-expr" "also-has" "&rest"])
-    (later ["every" "?instance-expr" "also-hasnt" "&rest"])
-    (later ["?instance-expr" "also-hasnt" "&rest"])
-    (later ["?instance-expr" "now-has" "&rest"])
+    (entry ["?instance-expr" "also-has" "&rest"]
+           (own-slots (symbol "also-has") (symbol "appending") false true))
+    (entry ["every" "?instance-expr" "also-hasnt" "&rest"] every-also-hasnt)
+    (entry ["?instance-expr" "also-hasnt" "&rest"] also-hasnt-handler)
+    (entry ["?instance-expr" "now-has" "&rest"]
+           (own-slots (symbol "now-has") (symbol "overwriting") true false))
     (entry ["?xs" "&&" "&rest"] #(unify-handler %1 %2 (symbol "&&")))
     (entry ["?x" "&" "&rest"] #(unify-handler %1 %2 (symbol "&")))
     (entry ["?xs" "===" "&rest"] #(unify-handler %1 %2 (symbol "===")))
@@ -2491,7 +3615,7 @@
     (entry ["?x" "&+!" "?y"] plus-eager-handler)
     (entry ["?x" "=" "?y"] (set-equal-handler false))
     (entry ["?x" "/=" "?y"] (set-equal-handler true))
-    (later ["the" "?class" "?slot" "of" "?frameadd"])
+    (entry ["the" "?class" "?slot" "of" "?frameadd"] the-class-slot-handler)
     (entry ["in-theory" "?theory-expr"] in-theory-handler)
     (entry ["in-theory" "?theory-expr" "?km-expr"] in-theory-body-handler)
     (entry ["hide-theory" "?theory-expr"] hide-theory-handler)
@@ -2538,12 +3662,16 @@
     (entry ["the+" "?frame"] the-plus-frame-handler)
     (entry ["the+" "?frame" "with" "&rest"] the-plus-with-handler)
     (entry ["a+" "&rest"] a-plus-handler)
-    (later ["every" "?cexpr" "has-definition" "&rest"])
-    (later ["every" "?cexpr" "now-has-definition" "&rest"])
-    (later ["?instance-expr" "has-definition" "&rest"])
-    (later ["?instance-expr" "now-has-definition" "&rest"])
-    (later ["if" "?condition" "then" "?action"])
-    (later ["if" "?condition" "then" "?action" "else" "?altaction"])
+    (entry ["every" "?cexpr" "has-definition" "&rest"]
+           (definition-handler (symbol "has-definition") true))
+    (entry ["every" "?cexpr" "now-has-definition" "&rest"]
+           (definition-handler (symbol "now-has-definition") true))
+    (entry ["?instance-expr" "has-definition" "&rest"]
+           (definition-handler (symbol "has-definition") false))
+    (entry ["?instance-expr" "now-has-definition" "&rest"]
+           (definition-handler (symbol "now-has-definition") false))
+    (entry ["if" "?condition" "then" "?action"] if-then-handler)
+    (entry ["if" "?condition" "then" "?action" "else" "?altaction"] if-else-handler)
     (entry ["?x" ">" "?y"] (compare-handler >))
     (entry ["?x" "<" "?y"] (compare-handler <))
     (entry ["?x" ">=" "?y"] (compare-handler >=))
@@ -2562,51 +3690,54 @@
     (entry ["?x" "is" "?y"] is-handler)
     (entry ["?xs" "includes" "?y"] includes-handler)
     (entry ["?xs" "is-superset-of" "?ys"] superset-handler)
-    (later ["?seq-expr1" "append" "?seq-expr2"])
-    (later ["?expr" "called" "?tag"])
-    (later ["?expr" "uniquely-called" "?tag"])
-    (later ["allof" "?set" "where" "?test"])
-    (later ["allof" "?set" "must" "?test"])
-    (later ["allof" "?set" "where" "?test2" "must" "?test"])
-    (later ["oneof" "?set" "where" "?test"])
-    (later ["theoneof" "?set" "where" "?test"])
-    (later ["forall" "?set" "?value"])
-    (later ["forall-seq" "?seq" "?value"])
-    (later ["forall-bag" "?bag" "?value"])
-    (later ["forall" "?set" "where" "?constraint" "?value"])
-    (later ["forall-seq" "?seq" "where" "?constraint" "?value"])
-    (later ["forall-seq2" "?seq" "where" "?constraint" "?value"])
-    (later ["forall-bag" "?bag" "where" "?constraint" "?value"])
-    (later ["forall-bag2" "?bag" "where" "?constraint" "?value"])
-    (later ["allof2" "?set" "where" "?test"])
-    (later ["allof2" "?set" "must" "?test"])
-    (later ["allof2" "?set" "where" "?test2" "must" "?test"])
-    (later ["oneof2" "?set" "where" "?test"])
-    (later ["forall2" "?set" "?value"])
-    (later ["forall-seq2" "?seq" "?value"])
-    (later ["forall-bag2" "?bag" "?value"])
-    (later ["theoneof2" "?set" "where" "?test"])
-    (later ["forall2" "?set" "where" "?constraint" "?value"])
-    (later ["allof" "?var" "in" "?set" "where" "?test"])
-    (later ["allof" "?var" "in" "?set" "must" "?test"])
-    (later ["allof" "?var" "in" "?set" "where" "?test2" "must" "?test"])
-    (later ["oneof" "?var" "in" "?set" "where" "?test"])
-    (later ["theoneof" "?var" "in" "?set" "where" "?test"])
-    (later ["forall" "?var" "in" "?set" "?value"])
-    (later ["forall-seq" "?var" "in" "?seq" "?value"])
-    (later ["forall-bag" "?var" "in" "?bag" "?value"])
-    (later ["forall" "?var" "in" "?set" "where" "?constraint" "?value"])
-    (later ["forall-bag" "?var" "in" "?bag" "where" "?constraint" "?value"])
-    (later ["forall-seq" "?var" "in" "?seq" "where" "?constraint" "?value"])
+    (entry ["?seq-expr1" "append" "?seq-expr2"] append-handler)
+    (entry ["?expr" "called" "?tag"] called-handler)
+    (entry ["?expr" "uniquely-called" "?tag"] uniquely-called-expr)
+    (entry ["allof" "?set" "where" "?test"] (allof-where (symbol "forall") it-symbol))
+    (entry ["allof" "?set" "must" "?test"] (allof-must it-symbol))
+    (entry ["allof" "?set" "where" "?test2" "must" "?test"] (allof-where-must (symbol "allof") it-symbol))
+    (entry ["oneof" "?set" "where" "?test"] (oneof-where it-symbol))
+    (entry ["theoneof" "?set" "where" "?test"] (theoneof-of (symbol "forall") it-symbol))
+    (entry ["forall" "?set" "?value"] (where-t (symbol "forall")))
+    (entry ["forall-seq" "?seq" "?value"] (where-t (symbol "forall-seq")))
+    (entry ["forall-bag" "?bag" "?value"] (where-t (symbol "forall-bag")))
+    (entry ["forall" "?set" "where" "?constraint" "?value"] (forall-where it-symbol))
+    (entry ["forall-seq" "?seq" "where" "?constraint" "?value"] (seq-where (symbol "forall-seq") it-symbol))
+    (entry ["forall-seq2" "?seq" "where" "?constraint" "?value"] (seq-where (symbol "forall-seq2") it2-symbol))
+    (entry ["forall-bag" "?bag" "where" "?constraint" "?value"] (bag-where (symbol "forall-bag") it-symbol))
+    (entry ["forall-bag2" "?bag" "where" "?constraint" "?value"] (bag-where (symbol "forall-bag2") it2-symbol))
+    (entry ["allof2" "?set" "where" "?test"] (allof-where (symbol "forall2") it2-symbol))
+    (entry ["allof2" "?set" "must" "?test"] (allof-must it2-symbol))
+    (entry ["allof2" "?set" "where" "?test2" "must" "?test"] (allof-where-must (symbol "allof2") it2-symbol))
+    (entry ["oneof2" "?set" "where" "?test"] (oneof-where it2-symbol))
+    (entry ["forall2" "?set" "?value"] (where-t (symbol "forall2")))
+    (entry ["forall-seq2" "?seq" "?value"] (where-t (symbol "forall-seq2")))
+    (entry ["forall-bag2" "?bag" "?value"] (where-t (symbol "forall-bag2")))
+    (entry ["theoneof2" "?set" "where" "?test"] (theoneof-of (symbol "forall2") it2-symbol))
+    (entry ["forall2" "?set" "where" "?constraint" "?value"] (forall-where it2-symbol))
+    (entry ["allof" "?var" "in" "?set" "where" "?test"] allof-in-where)
+    (entry ["allof" "?var" "in" "?set" "must" "?test"] allof-must-in)
+    (entry ["allof" "?var" "in" "?set" "where" "?test2" "must" "?test"] allof-where-must-in)
+    (entry ["oneof" "?var" "in" "?set" "where" "?test"] oneof-in)
+    (entry ["theoneof" "?var" "in" "?set" "where" "?test"] theoneof-in)
+    (entry ["forall" "?var" "in" "?set" "?value"] (where-t-var (symbol "forall")))
+    (entry ["forall-seq" "?var" "in" "?seq" "?value"] (where-t-var (symbol "forall-seq")))
+    (entry ["forall-bag" "?var" "in" "?bag" "?value"] (where-t-var (symbol "forall-bag")))
+    (entry ["forall" "?var" "in" "?set" "where" "?constraint" "?value"] forall-in-where)
+    (entry ["forall-bag" "?var" "in" "?bag" "where" "?constraint" "?value"] bag-in-where)
+    (entry ["forall-seq" "?var" "in" "?seq" "where" "?constraint" "?value"] seq-in-where)
     (entry ["function" "?lispcode"] function-handler)
-    (later ["the1" "?slot" "of" "?frameadd"])
-    (later ["the2" "?slot" "of" "?frameadd"])
-    (later ["the3" "?slot" "of" "?frameadd"])
-    (later ["the1" "of" "?frameadd"])
-    (later ["the2" "of" "?frameadd"])
-    (later ["the3" "of" "?frameadd"])
-    (later ["theN" "?nexpr" "of" "?frameadd"])
-    (later ["theNth" "?nexpr" "of" "?frameadd"])
+    (entry ["the1" "?slot" "of" "?frameadd"] (positional (symbol "the1")))
+    (entry ["the2" "?slot" "of" "?frameadd"] (positional (symbol "the2")))
+    (entry ["the3" "?slot" "of" "?frameadd"] (positional (symbol "the3")))
+    (entry ["the1" "of" "?frameadd"]
+           (project-slot #(if (term/structured-list? %) (nth-cell % 1) %)))
+    (entry ["the2" "of" "?frameadd"]
+           (project-slot #(when (term/structured-list? %) (nth-cell % 2))))
+    (entry ["the3" "of" "?frameadd"]
+           (project-slot #(when (term/structured-list? %) (nth-cell % 3))))
+    (entry ["theN" "?nexpr" "of" "?frameadd"] the-n-handler)
+    (entry ["theNth" "?nexpr" "of" "?frameadd"] the-nth-handler)
     (rewrite "^" "^")
     (rewrite "^" "+")
     (rewrite "^" "-")
@@ -2641,8 +3772,8 @@
     (later ["showme-all" "?km-expr"])
     (later ["evaluate-all" "?km-expr"])
     (later ["showme-here" "?km-expr"])
-    (later ["the-class" "?class"])
-    (later ["the-class" "?class" "with" "&rest"])
+    (entry ["the-class" "?class"] the-class-handler)
+    (entry ["the-class" "?class" "with" "&rest"] the-class-with-handler)
     (later ["constraints-for" ["the" "?slot" "of" "?frameadd"]])
     (later ["rules-for" ["the" "?slot" "of" "?frameadd"]])
     (entry ["why"] why-command)
@@ -2682,9 +3813,9 @@
     (entry ["undo"] (fn [state _] (loadkb/undo-command state nil)))
     (later ["an" "instance" "of" "?expr"])
     (later ["an" "instance" "of" "?expr" "with" "&rest"])
-    (later ["reverse" "?seq-expr"])
+    (entry ["reverse" "?seq-expr"] reverse-handler)
     (entry [:default "?expr"] default-handler)
-    (entry ["sometimes" "?expr"] note-constraint)
+    (entry ["sometimes" "?expr"] sometimes-handler)
     (later ["anonymous-instancep" "?expr"])]
    [[(symbol "?path") path-handler]]))
 
@@ -2774,7 +3905,10 @@
   [state expr commented fail-mode target rewrite?]
   (let [state (-> state
                   (update-in [:query :depth] (fnil inc 0))
-                  (update-in [:query :query-directed-inferences] (fnil inc 0))
+                  (update-in [:query (if (get-in state [:query :am-classifying])
+                                     :classification-inferences
+                                     :query-directed-inferences)]
+                             (fnil inc 0))
                   (assoc :fail-mode fail-mode :target target :current-expr commented))
         state (stats/maybe-spot state)
         profile-key (explain/desource expr)

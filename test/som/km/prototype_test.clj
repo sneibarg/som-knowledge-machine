@@ -41,15 +41,20 @@
 (defn- proto-name [state]
   (label (term/car (:value state))))
 
-(deftest a-cat-outside-prototype-mode-stays-refused
+(deftest a-cat-outside-prototype-mode-is-created
   (let [created (answer "(a Cat)")
         slotted (answer "(a Cat with (color (black)))")
-        called (answer "(a Cat called Fred)")]
-    (is (= "not-ported" (:error created)))
-    (is (= "This form is not ported yet: (a Cat)." (:message created)))
-    (is (= "not-ported" (:error slotted)))
-    (is (= "This form is not ported yet: (a Cat with (color (black)))." (:message slotted)))
-    (is (= "not-ported" (:error called)))))
+        called (answer "(a Cat called Fred)")
+        tag (on called "(the called of _Cat1)")]
+    (is (:ok created))
+    (is (= (term "(_Cat1)") (:value created)))
+    (is (:ok slotted))
+    (is (= (term "(_Cat1)") (:value slotted)))
+    (is (:ok called))
+    (is (= (term "(_Cat1)") (:value called)))
+    (is (= (term "(Fred)") (:value tag)))
+    (is (frame/are-some? (:kb called) :tags))
+    (is (empty? (:errors called)))))
 
 (deftest a-prototype-supplies-a-slot-and-records-the-clone
   (let [opened (answer "(a-prototype Cat)")
@@ -106,14 +111,17 @@
     (is (not (str/starts-with? (label hue) "_Proto")))
     (is (= (term "(Color)") (:value kind)))))
 
-(deftest a-with-form-does-not-evaluate-its-existential
+(deftest a-stored-existential-is-created-when-the-slot-is-read
   (let [opened (answer "(a-prototype Cat with (color ((a Color))))")
         closed (on opened "(end-prototype)")
         cat (on closed "(_Cat1 has (instance-of (Cat)))")
-        color (on cat "(the color of _Cat1)")]
+        color (on cat "(the color of _Cat1)")
+        hue (term/car (:value color))
+        kind (on color (str "(the instance-of of " (label hue) ")"))]
     (is (empty? (:errors opened)))
-    (is (= "not-ported" (:error color)))
-    (is (re-find #"\(a Color\)" (:message color)))))
+    (is (empty? (:errors color)))
+    (is (str/starts-with? (label hue) "_Color"))
+    (is (= (term "(Color)") (:value kind)))))
 
 (deftest a-second-prototype-is-used-for-its-own-slot
   (let [opened (answer "(a-prototype Cat)")

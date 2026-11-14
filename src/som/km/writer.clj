@@ -537,6 +537,9 @@
          explanations
          "\n;;; ----------------------------------------\n"
          "\n(enable-installing-inverses)  ; (Re-enable it after restoring KB state)\n"
+         (if (:installing-inverses? kb)
+           ""
+           "(disable-installing-inverses) ; This knowledge base had inverse installation off\n")
          (behavior-lines kb)
          (state-lines kb)
          ";;; --- end (" (count unbound) " frames written) ---\n\n")))

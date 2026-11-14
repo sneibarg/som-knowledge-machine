@@ -8,9 +8,8 @@
 
   The interpreter is passed in as km-int. This namespace does not
   require it. Situations other than the current one, theories, and
-  explanations are later steps. (a Class) is still not created here,
-  so a description with slots is not built just to compare it with
-  another description."
+  explanations are later steps. Comparing two descriptions builds a
+  temporary instance and then restores the knowledge base."
   (:require [som.km.errors :as errors]
             [som.km.explain :as explain]
             [som.km.frame :as frame]
@@ -658,19 +657,23 @@
   "Whether the x description matches the y description.
 
   Two slotless descriptions use the stored subclass links. A description
-  with slots would build a temporary instance, and that creation is still
-  refused, so nothing is left behind."
+  with slots builds a temporary instance, tests it, and restores the
+  knowledge base and the query. The Lisp undoes a checkpoint for the
+  same reason. The answer and any recorded errors stay."
   [state x-desc y-desc]
   (let [x-class (slotless-class x-desc)
         y-class (slotless-class y-desc)]
     (if (and x-class y-class)
       (let [under (taxonomy/is-subclass-of? (:kb state) x-class y-class)]
         (assoc (adopt state under) :value (when (:value under) utils/null-bindings)))
-      (let [made (km-unique state (utils/unquote-expr x-desc) :fail-mode :error)]
-        (cond
-          (refused? made) made
-          (nil? (:value made)) (assoc made :value nil)
-          :else (is0 made (:value made) (utils/unquote-expr y-desc)))))))
+      (let [saved-kb (:kb state)
+            saved-query (:query state)
+            made (km-unique state (utils/unquote-expr x-desc) :fail-mode :error)
+            tested (cond
+                     (refused? made) made
+                     (nil? (:value made)) (assoc made :value nil)
+                     :else (is0 made (:value made) (utils/unquote-expr y-desc)))]
+        (assoc tested :kb saved-kb :query saved-query)))))
 
 (defn is-value
   "Whether x matches y under is.

@@ -36,14 +36,14 @@
     (is (contains? result :query))))
 
 (deftest a-form-that-is-not-ported-is-refused
-  (let [cat (engine/evaluate "(a Cat)")
-        lower (engine/evaluate "(a cat)")]
-    (is (= false (:ok cat)))
-    (is (= "not-ported" (:error cat)))
-    (is (= "This form is not ported yet: (a Cat)." (:message cat)))
-    (is (nil? (:value cat)))
-    (is (not= (:message cat) (:message lower)))
-    (is (frame/known-frame? (:kb cat) (symbol "Thing")))))
+  (let [form (engine/evaluate "(retain-expr (1 + 2))")
+        upper (engine/evaluate "(RETAIN-EXPR (1 + 2))")]
+    (is (= false (:ok form)))
+    (is (= "not-ported" (:error form)))
+    (is (= "This form is not ported yet: (retain-expr (1 + 2))." (:message form)))
+    (is (nil? (:value form)))
+    (is (not= (:message form) (:message upper)))
+    (is (frame/known-frame? (:kb form) (symbol "Thing")))))
 
 (deftest nil-t-and-f-are-answer-lists
   (is (nil? (:value (engine/evaluate "nil"))))

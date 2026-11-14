@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.springy.som</groupId>
+  <artifactId>som-knowledge-machine-deploy</artifactId>
+  <version>1</version>
+  <packaging>pom</packaging>
+
+  <distributionManagement>
+    <repository>
+      <id>nexus-releases</id>
+      <name>Nexus Releases</name>
+      <url>http://dragon:8089/repository/maven-releases/</url>
+    </repository>
+    <snapshotRepository>
+      <id>nexus-snapshots</id>
+      <name>Nexus Snapshots</name>
+      <url>http://dragon:8089/repository/maven-snapshots/</url>
+    </snapshotRepository>
+  </distributionManagement>
+
+  <properties>
+    <deploy.repository.id>${project.distributionManagement.snapshotRepository.id}</deploy.repository.id>
+    <deploy.repository.url>${project.distributionManagement.snapshotRepository.url}</deploy.repository.url>
+  </properties>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-deploy-plugin</artifactId>
+        <version>3.1.4</version>
+        <configuration>
+          <pomFile>${project.basedir}/target/classes/META-INF/maven/org.springy.som/som-knowledge-machine/pom.xml</pomFile>
+          <repositoryId>${deploy.repository.id}</repositoryId>
+          <url>${deploy.repository.url}</url>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>release</id>
+      <properties>
+        <deploy.repository.id>${project.distributionManagement.repository.id}</deploy.repository.id>
+        <deploy.repository.url>${project.distributionManagement.repository.url}</deploy.repository.url>
+      </properties>
+    </profile>
+  </profiles>
+</project>

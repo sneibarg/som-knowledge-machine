@@ -142,9 +142,12 @@
                  kb (:query (pushed kb frame/empty-query (term "(a Dog)")))
                  (term "(the age of Fred)"))]
     (is (nil? (:value residual)))
-    (is (= "The loop's remaining expression is not evaluated yet."
-           (:message residual)))
+    (is (= (term "(a Dog)") (:evaluate residual)))
+    (is (= (sym "age") (:slot residual)))
+    (is (= fred (:instance residual)))
+    (is (not (contains? residual :message)))
     (is (nil? (:value blocked)))
+    (is (not (contains? blocked :evaluate)))
     (is (not (contains? blocked :message))))
   (let [kb (frame/knowledge-base)]
     (is (= (term "(t)")

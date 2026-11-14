@@ -105,12 +105,15 @@
 (def ^:private built-in-slots
   (into built-in-single-valued built-in-multivalued))
 
-(def ^:private built-in-classes
-  (syms ["Integer" "Number" "Thing" "Slot" "Aggregate" "Aggregation-Slot"
+(def ^:private built-in-class-order
+  (symv ["Integer" "Number" "Thing" "Slot" "Aggregate" "Aggregation-Slot"
          "Seq-Aggregation-Slot" "Bag-Aggregation-Slot" "Set-Aggregation-Slot"
          "String" "Class" "Situation" "Boolean" "Partition"
          "Exhaustive-Partition" "Cardinality" "Fluent-Status"
          "Pair" "Triple" "Sequence" "Bag" "Theory" "Function"]))
+
+(def ^:private built-in-classes
+  (set built-in-class-order))
 
 (def ^:private built-in-instances
   (into (syms ["1-to-N" "1-to-1" "N-to-1" "N-to-N"
@@ -128,30 +131,6 @@
 
 (def ^:private nonfluent-instances-classes
   (syms ["Situation" "Slot" "Partition" "Theory"]))
-
-(def ^:private superclass-links
-  [[(symbol "Integer") (symbol "Number")]
-   [(symbol "Number") (symbol "Thing")]
-   [(symbol "Pair") (symbol "Sequence")]
-   [(symbol "Triple") (symbol "Sequence")]
-   [(symbol "Sequence") (symbol "Thing")]
-   [(symbol "Exhaustive-Partition") (symbol "Partition")]
-   [(symbol "Partition") (symbol "Thing")]
-   [(symbol "Set-Aggregation-Slot") (symbol "Aggregation-Slot")]
-   [(symbol "Seq-Aggregation-Slot") (symbol "Aggregation-Slot")]
-   [(symbol "Bag-Aggregation-Slot") (symbol "Aggregation-Slot")]
-   [(symbol "Aggregation-Slot") (symbol "Slot")]
-   [(symbol "Slot") (symbol "Thing")]
-   [(symbol "Aggregate") (symbol "Thing")]
-   [(symbol "Class") (symbol "Thing")]
-   [(symbol "String") (symbol "Thing")]
-   [(symbol "Boolean") (symbol "Thing")]
-   [(symbol "Situation") (symbol "Thing")]
-   [(symbol "Cardinality") (symbol "Thing")]
-   [(symbol "Fluent-Status") (symbol "Thing")]
-   [(symbol "Bag") (symbol "Thing")]
-   [(symbol "Theory") (symbol "Thing")]
-   [(symbol "Function") (symbol "Thing")]])
 
 (def ^:private instance-of-links
   [[(symbol "t") (symbol "Boolean")]
@@ -813,6 +792,32 @@
   them most-specific first when the scope is written."
   [kb class]
   (term/build-list (or (:defined-prototypes (frame-record kb class)) []) nil))
+
+(defn defined-subclasses
+  "Classes whose member definition names class as a parent.
+
+  The list is most specific first. A class with none answers nil."
+  [kb class]
+  (term/build-list (or (:defined-subclasses (frame-record kb class)) []) nil))
+
+(defn defined-instances
+  "Instances whose own definition names frame as a parent.
+
+  The list is most specific first. A frame with none answers nil."
+  [kb frame]
+  (term/build-list (or (:defined-instances (frame-record kb frame)) []) nil))
+
+(defn set-defined-children
+  "Replace the defined-subclasses or defined-instances list on parent.
+
+  children is a vector, most specific first. A parent that was not a
+  frame becomes one, so the index has a place to live. Facets already
+  stored on that parent stay."
+  [kb parent key children]
+  (when-not (#{:defined-subclasses :defined-instances} key)
+    (throw (ex-info "A defined-child list is subclasses or instances." {:key key})))
+  (let [record (or (frame-record kb parent) {:facets {}})]
+    (store-frame kb parent (assoc record key (vec children)))))
 
 (defn add-definition
   "Append one expression to a prototype's cosmetic definition.
@@ -1479,6 +1484,14 @@
   [kb slot]
   (flag-on-slot? kb slot (symbol "remove-subsumees") remove-subsumee-slots))
 
+(defn built-in-appending-slot?
+  "True when slot is one of the built-in appending slots.
+
+  A user slot with combine-values-by-appending stored is not in this
+  set. Those slots append until a partial prototype merge joins them."
+  [slot]
+  (contains? appending-slots slot))
+
 (defn appending-slot?
   "True when several value lists on this slot are appended.
 
@@ -1495,6 +1508,17 @@
 (defn- non-inverse-concept?
   [concept]
   (contains? built-in-instances concept))
+
+(defn records-inverse?
+  "True when an assertion of value on slot also records the inverse.
+
+  Both must be knowledge-base objects. A slot that ignores inverses,
+  and a built-in instance such as t, do not."
+  [kb slot value]
+  (and (kb/kb-object? value)
+       (kb/kb-object? slot)
+       (not (non-inverse-slot? kb slot))
+       (not (non-inverse-concept? value))))
 
 (def ^{:dynamic true
        :doc "The value-list subsumption test the store calls.
@@ -2263,11 +2287,12 @@
   "Install the inverse link for each ground value.
 
   A knowledge-base object and an :args value are linked. An & expression
-  is opened and its pieces are linked in this same situation. Anything
-  else, including an existential, is left as data. A slot that ignores
-  inverses is skipped. The Lisp opens an & expression and then leaves
-  the situation argument outside that call. The pieces are installed
-  here in the situation already chosen for the assertion."
+  is opened and its pieces are linked in the situation target-situation
+  chooses for the current situation. Anything else, including an
+  existential, is left as data. A slot that ignores inverses is skipped.
+  The Lisp opens an & expression and then leaves the situation argument
+  outside that call, so the pieces are not installed in the situation
+  already chosen for the assertion."
   [kb frame slot values situation query]
   (cond
     (not (:installing-inverses? kb)) (result kb nil query)
@@ -2291,7 +2316,9 @@
 
                        (kb/&-expr? value)
                        (install-inverses kb frame slot (kb/&-expr-to-vals value)
-                                         situation query)
+                                         (target-situation kb (current-situation kb)
+                                                           frame slot)
+                                         query)
 
                        :else (result kb nil query))]
             (recur (term/cdr values) (:kb step) (:query step))))))))
@@ -2911,10 +2938,10 @@
 
 (defn- install-vocabulary
   [kb]
-  (let [kb (reduce (fn [kb [child parent]]
-                     (add-global kb child (symbol "superclasses") parent))
-                   kb
-                   superclass-links)
+  ;; The side table supplies built-in superclass links. Storing them
+  ;; would fill the subclass slots in reverse insertion order.
+  ;; The class list is noted in written order. A set would not.
+  (let [kb (reduce note-frame kb built-in-class-order)
         kb (reduce (fn [kb slot]
                      (add-instance-of kb slot (built-in-slot-class slot)))
                    kb

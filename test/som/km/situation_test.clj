@@ -37,14 +37,14 @@
     (is (= (term-of "(*Global)") (:value global)))
     (is (empty? (:errors created)))))
 
-(deftest a-cat-stays-refused-and-a-situation-is-created
+(deftest a-cat-and-a-situation-are-created
   (let [cat (answer "(a Cat)")
         with (answer "(a Cat with (color (black)))")
         made (answer "(a Situation)")]
-    (is (= "not-ported" (:error cat)))
-    (is (= "This form is not ported yet: (a Cat)." (:message cat)))
-    (is (= "not-ported" (:error with)))
-    (is (= "This form is not ported yet: (a Cat with (color (black)))." (:message with)))
+    (is (:ok cat))
+    (is (str/starts-with? (name-of cat) "_Cat"))
+    (is (:ok with))
+    (is (str/starts-with? (name-of with) "_Cat"))
     (is (:ok made))
     (is (str/starts-with? (name-of made) "_Situation"))
     (is (nil? (:error made)))))

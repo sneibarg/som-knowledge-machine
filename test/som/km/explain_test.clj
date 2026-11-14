@@ -169,12 +169,12 @@
 
 (deftest a-bad-why-argument-is-a-user-error
   (let [bad (answer "(why (Fred))")
-        created (answer "(a Cat)")]
+        created (answer "(retain-expr (1 + 2))")]
     (is (nil? (:value bad)))
     (is (some #(str/includes? % "Bad argument to (why ...)!") (:errors bad)))
     (is (some #(str/starts-with? % "ERROR! ") (:errors bad)))
     (is (= "not-ported" (:error created)))
-    (is (= "This form is not ported yet: (a Cat)." (:message created)))))
+    (is (= "This form is not ported yet: (retain-expr (1 + 2))." (:message created)))))
 
 (deftest explanations-can-be-turned-off-and-on
   (let [off (answer "(no-explanations)")

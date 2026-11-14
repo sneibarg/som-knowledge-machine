@@ -6,12 +6,15 @@
   prototype-participants. While that prototype is being built, (a Class)
   creates another participant. (end-prototype) leaves the mode.
   A later slot read clones the participant graph onto an ordinary
-  instance and unifies the clone with &!.
+  instance and unifies the clone with &!. A slotted prototype-scope is
+  tested when the instance is not already one of the prototype's
+  classes. The caller classifies a new instance.
 
-  (a Class) outside prototype mode stays refused. called stays refused.
+  (a Class) outside prototype mode creates an ordinary instance.
   This namespace does not require the interpreter or the slot reader.
   Both are passed in when a clone has to evaluate something."
-  (:require [som.km.errors :as errors]
+  (:require [som.km.classify :as classify]
+            [som.km.errors :as errors]
             [som.km.frame :as frame]
             [som.km.kbutils :as kb]
             [som.km.print :as print]
@@ -191,7 +194,7 @@
   otherwise. bind-self? replaces Self. The root is created before
   prototype mode is on, so this does not add that root as a participant.
   A participant created while mode is on is linked to the current
-  prototype. Classification and the assertions slot are not run."
+  prototype. The caller classifies. The assertions slot is not run."
   [state class slotsvals & {:keys [prefix bind-self?] :or {bind-self? true}}]
   (let [described (class-of-description class)
         parent (or described class)
@@ -346,31 +349,16 @@
                      (conj acc item)))))))))
 
 (defn- matches-protoclass?
-  "True when instance is already one of the prototype's classes.
+  "True when the prototype applies to instance.
 
-  An instance that is not already that class is not reclassified here.
-  The Lisp would test the prototype-scope with isa. A description that
-  still holds slots is refused by subsumption, and a failed test would
-  drop the prototype rather than fail the query."
-  [state instance prototype]
-  (let [found (frame/get-vals (:kb state) prototype (symbol "instance-of")
-                              :situation term/global-situation
-                              :dereference? false
-                              :query (:query state))
-        removed (taxonomy/remove-subsumers (:kb found) (:value found))
-        state (assoc (adopt state found) :kb (:kb removed))]
-    (loop [rest (:value removed)
-           state state]
-      (cond
-        (or (nil? rest) (not (term/cons? rest))) [state false]
-        :else
-        (let [hit (taxonomy/isa? (:kb state) instance (term/car rest))]
-          (if (:value hit)
-            [(adopt state hit) true]
-            (recur (term/cdr rest) (adopt state hit))))))))
+  A stored member succeeds before the description is tested. While
+  that instance is already being classified, the description is not
+  tested again."
+  [state instance prototype km-int]
+  (classify/prototype-fits? state instance prototype km-int))
 
 (defn- suitable?
-  [state instance slot prototype]
+  [state instance slot prototype km-int]
   (cond
     (or (utils/eql? instance prototype)
         (not (prototype? (:kb state) prototype))
@@ -386,14 +374,14 @@
               state (assoc state :kb (:kb closed))]
           (if (some #(utils/eql? prototype %) (:value closed))
             [state false]
-            (matches-protoclass? state instance prototype)))))))
+            (matches-protoclass? state instance prototype km-int)))))))
 
 (defn- applicable
   "Prototypes worth cloning, in class order and then storage order.
 
   Thing is visited first. A class's prototypes stay in the order they
   were stored. The knowledge base from each suitability test is kept."
-  [state instance slot]
+  [state instance slot km-int]
   (let [classes (taxonomy/all-classes (:kb state) instance)
         state (adopt state classes)]
     (loop [rest (:value classes)
@@ -408,7 +396,8 @@
                      acc acc]
                 (if (or (nil? protos) (not (term/cons? protos)))
                   [state acc]
-                  (let [[state fits?] (suitable? state instance slot (term/car protos))]
+                  (let [[state fits?] (suitable? state instance slot
+                                                       (term/car protos) km-int)]
                     (recur (term/cdr protos)
                            state
                            (if fits? (conj acc (term/car protos)) acc)))))]
@@ -564,13 +553,27 @@
                                            :situation term/global-situation
                                            :dereference? false))))))))
 
+(defn- clone-cycle?
+  "A cloned-from explanation whose second element is not a prototype.
+
+  During a load the clone may not be marked a prototype yet (HLO-1859).
+  The Lisp comment says the check is suppressed while loading. The code
+  does not look at a load flag, so this check runs during a load too."
+  [kb explanation]
+  (and (term/cons? explanation)
+       (utils/eql? (term/car explanation) (symbol "cloned-from"))
+       (not (prototype? kb (nth-value explanation 1)))))
+
 (defn- copy-explanations
   [kb mapping]
   (reduce (fn [kb [participant clone]]
             (reduce (fn [kb record]
                       (if (copied-instance-of? kb record)
                         kb
-                        (frame/record-explanation kb clone (translate mapping record))))
+                        (let [translated (translate mapping record)]
+                          (if (clone-cycle? kb (nth-value translated 3))
+                            kb
+                            (frame/record-explanation kb clone translated)))))
                     kb
                     (utils/elements (frame/explanations kb participant))))
           kb
@@ -720,6 +723,10 @@
                             thrown)))
           (throw thrown))))))
 
+(defn- restore-partial
+  [state previous]
+  (assoc-in state [:query :partially-included-prototype] previous))
+
 (defn- unify-one
   [state instance prototype km-int]
   (let [cloned (km-int state (term/km-list (symbol "clone") prototype) :fail-mode :error)]
@@ -728,15 +735,33 @@
       (not (term/singleton? (:value cloned))) cloned
       :else
       (let [clone-name (term/car (:value cloned))
-            operator (if (eager? (:kb cloned)) (symbol "&!") (symbol "&"))]
-        (km-int cloned
-                (term/km-list instance operator clone-name)
-                :fail-mode :error)))))
+            operator (if (eager? (:kb cloned)) (symbol "&!") (symbol "&"))
+            closed (closure (:kb cloned) instance (symbol "cloned-from"))
+            previous (get (:query cloned) :partially-included-prototype)
+            partial? (some #(utils/eql? prototype %) (:value closed))
+            marked (assoc cloned
+                          :kb (:kb closed)
+                          :query (assoc (or (:query cloned) {})
+                                        :partially-included-prototype
+                                        (if partial? prototype previous)))]
+        (try
+          (restore-partial
+           (km-int marked
+                   (term/km-list instance operator clone-name)
+                   :fail-mode :error)
+           previous)
+          (catch clojure.lang.ExceptionInfo thrown
+            (if (errors/abort-exception? thrown)
+              (let [data (ex-data thrown)]
+                (throw (ex-info (.getMessage thrown)
+                                (assoc data :state (restore-partial (:state data) previous))
+                                thrown)))
+              (throw thrown))))))))
 
 (defn- unify-all
   [state instance0 slot km-int]
   (let [instance (frame/dereference (:kb state) instance0)
-        [state prototypes] (applicable state instance slot)]
+        [state prototypes] (applicable state instance slot km-int)]
     (loop [prototypes prototypes
            state state]
       (cond
@@ -761,9 +786,12 @@
   false, so a nested slot read does not clone again. The previous flag
   is restored on the returned knowledge base and on an abort. The
   unify-with-clone-of goal is not pushed. A prototype already reached
-  through cloned-from is unified the same way as a first clone. The
-  Lisp binds partially-included-prototype for that second case, and
-  appending slots then merge with &&. That binding is not stored."
+  through clone-built-from is not unified again. A prototype reached
+  through cloned-from, and not through clone-built-from, is unified
+  again. For that pass the query records partially-included-prototype
+  for the duration of the unify, then the previous value is restored.
+  A user appending slot can then join values that share a cloned-from
+  source. The binding is not stored on the knowledge base."
   [state instance slot km-int]
   (let [previous (get (:runtime (:kb state)) :use-prototypes? true)
         recursive (boolean (flag (:kb state) :recursive-prototypes? false))

@@ -92,7 +92,7 @@
         gone (on asserted "(delete Sue)")
         missing (on gone "(the age of Sue)")]
     (is (= (term "(red)") (:value read)))
-    (is (= (term "(Triple Pair)") (:value classes)))
+    (is (= (term "(Pair Triple)") (:value classes)))
     (is (= (term "(Cat)") (:value every)))
     (is (not= "not-ported" (:error every)))
     (is (nil? (:value cat)))
@@ -128,7 +128,7 @@
         check (on sometimes "(sanity-check (Fred has (color (red))))")]
     (is (nil? (:value must)))
     (is (frame/are-some? (:kb must) :constraints))
-    (is (nil? (:value sometimes)))
+    (is (= (term "(3)") (:value sometimes)))
     (is (= (term "(t)") (:value check)))
     (is (nil? (:value (frame/get-vals (:kb check) (symbol "Fred") (symbol "color"))))))
   (is (= "not-ported" (:error (answer "(retain-expr (1 + 2))"))))
