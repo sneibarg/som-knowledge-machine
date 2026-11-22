@@ -10,6 +10,14 @@ Scalable means the engine is a library and its state is explicit. The prompt and
 
 Maintainable means the port follows the Lisp module boundaries, one piece at a time, in clear Clojure. Each finished piece is described in plain English. There is one implementation of each behavior. `compiled-handlers.lisp` is a generated speed flattening of the interpreter. Port the interpreter, and leave that generated file as reference.
 
+## Skills
+
+Follow the skill. Do not copy its steps into this file.
+
+- `align-repository` (`.grok/skills/align-repository/SKILL.md`, `/align-repository`). Use it when asked to align one of its target repositories, or to report the changes that would match that repository's standards. It writes the alignment report and leaves the code unchanged.
+- `clojure-code-review` (`.grok/skills/clojure-code-review/SKILL.md`, `/clojure-code-review`). Use it when asked to review Clojure against the Coding Conventions, or to report where the code breaks those conventions. It writes the report and leaves the code unchanged.
+- `clj-kondo` (`.grok/skills/clj-kondo/SKILL.md`, `/clj-kondo`). Use it when asked to lint this repository. It writes the report and leaves the code unchanged.
+
 ## Reference
 
 Lasting information about this system lives in `docs/reference/`. Read [docs/reference/Architecture.md](docs/reference/Architecture.md) before changing structure, public functions, or the boundary between the engine and its adapters. When a change alters that picture, update the document in the same change.
