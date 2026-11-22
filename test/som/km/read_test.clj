@@ -101,6 +101,13 @@
   (is (= "(\"a\nb\")" (print/km-format (term/km-list "a\nb"))))
   (is (not (str/includes? (print/km-format (term/km-list "a\nb")) "\\n"))))
 
+(deftest a-long-list-of-names-prints
+  (let [names (mapv #(str "n" %) (range 5000))
+        text (print/km-format (term/build-list names nil))]
+    (is (str/starts-with? text "(\"n0\" \"n1\" \"n2\""))
+    (is (str/ends-with? text "\"n4999\")"))
+    (is (= "(a . b)" (print/km-format (term/cons-cell (symbol "a") (symbol "b")))))))
+
 (deftest keywords-keep-their-case
   (is (= :seq (term ":seq")))
   (is (= :Seq (term ":Seq")))
@@ -126,6 +133,15 @@
   (is (= \space (term "#\\Space")))
   (is (= \newline (term "#\\newline")))
   (is (= "A" (print/km-format \A))))
+
+(deftest a-function-body-keeps-a-lisp-backquote
+  (let [form (term "#'(LAMBDA () `(a ,b ,@c ,.d))")]
+    (is (= (symbol "function") (term/car form)))
+    (is (str/includes? (print/km-format form) "bq-backquote"))
+    (is (str/includes? (print/km-format form) "bq-comma "))
+    (is (str/includes? (print/km-format form) "bq-comma-at"))
+    (is (str/includes? (print/km-format form) "bq-comma-dot"))
+    (is (re-find #"comma" (:message (read/read-term "#'(LAMBDA () ,a)"))))))
 
 (deftest read-errors-name-the-problem
   (is (:incomplete (read/read-term "(a")))

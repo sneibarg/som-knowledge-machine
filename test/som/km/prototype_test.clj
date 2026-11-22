@@ -83,7 +83,7 @@
     (is (holds? (symbol name) (:value built)))
     (is (frame/classification-enabled? (:kb color)))
     (is (frame/dereferencing-on? (:kb color)))
-    (is (= (term (str "((a-prototype Cat) (" name " has (color (black))) (end-prototype))"))
+    (is (= (term (str "((a-prototoype Cat) (" name " has (color (black))) (end-prototype))"))
            defined))
     (is (some (fn [record]
                 (and (utils/eql? (symbol "color") (nth-value record 1))
@@ -222,3 +222,21 @@
     (is (= (term "(t)") (:value idle)))
     (is (mentions? #"Attempt to clone a non-prototype" plain))
     (is (nil? (:value plain)))))
+
+(deftest an-empty-prototype-is-stored-as-a-prototoype
+  (let [opened (answer "(a-prototoype Cat)")
+        name (proto-name opened)
+        closed (on opened "(end-prototype)")
+        written (on closed "(write-kb)")
+        spelled (answer "(a-prototype Cat)")
+        spelled-text (:text (on spelled "(write-kb)"))
+        furred (answer "(a-prototype Dog with (fur (brown)))")
+        furred-text (:text (on furred "(write-kb)"))]
+    (is (:ok opened))
+    (is (nil? (:error opened)))
+    (is (str/starts-with? name "_Proto"))
+    (is (= (term (str "(" name ")")) (:value opened)))
+    (is (str/includes? (:text written) "(a-prototoype Cat)"))
+    (is (str/includes? spelled-text "(a-prototoype Cat)"))
+    (is (str/includes? furred-text "(a-prototype Dog with"))
+    (is (not (str/includes? furred-text "a-prototoype")))))

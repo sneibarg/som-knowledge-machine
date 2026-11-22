@@ -59,10 +59,18 @@
                  (object-array [(double value)])))
 
 (defn- scientific
+  "~,Ne prints the exponent with as few digits as that value needs.
+
+  The Java conversion always writes at least two exponent digits. A
+  leading zero in that field is dropped, and a zero exponent keeps one
+  digit. 0.0001 is 1.000e-4. -0.5 is -5.000e-1."
   [value digits]
-  (String/format java.util.Locale/US
-                 (str "%." (max 0 (long digits)) "e")
-                 (object-array [(double value)])))
+  (let [text (String/format java.util.Locale/US
+                            (str "%." (max 0 (long digits)) "e")
+                            (object-array [(double value)]))]
+    (str/replace text #"e([+-])0*(\d+)"
+                 (fn [[_ sign exponent]]
+                   (str "e" sign exponent)))))
 
 (defn- trim-zeros
   [text]
@@ -75,7 +83,8 @@
 
   An integer stays a number, so later printing has no decimal part.
   *verbose-number-to-text* wraps it as (\"the value\" n). A float uses
-  *output-precision*, which starts at 3."
+  *output-precision*, which starts at 3. A number below 1 uses the
+  Lisp exponent width."
   [state value]
   (let [verbose? (get-in state [:kb :runtime :verbose-number-to-text?] false)
         precision (get-in state [:kb :runtime :output-precision] 3)]

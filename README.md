@@ -56,7 +56,7 @@ script as needed, for example `sh ./deploy.sh -s /path/to/settings.xml`.
 clojure -M:repl
 ```
 
-The prompt is `KM>`. A line is read and printed. It is not evaluated yet. `q` leaves the prompt. An unfinished expression continues on the next line.
+The prompt is `KM>`. A line is read and evaluated. `q` leaves the prompt. An unfinished expression continues on the next line.
 
 ## HTTP service
 
@@ -69,6 +69,60 @@ The service listens on `http://127.0.0.1:8080`. Set `PORT` to choose another por
 - `GET /status` returns the build description as JSON.
 - `POST /query` takes one Knowledge Machine expression as a `text/plain` body. A term returns status 200 and the printed form. The expression is not evaluated. A blank body or a broken expression returns status 400.
 - `GET /` names those two routes.
+
+## Component library
+
+The component library shipped with this build is `src/resources/km-component-library/rkf-clib/components`. Load it at the `KM>` prompt. The whole tree takes several minutes and about a gigabyte of heap, so start the prompt with extra memory:
+
+```
+clojure -J-Xmx4g -M:repl
+```
+
+```
+KM> (load-lib :silent t)
+```
+
+`(load-lib)` with no directory reads the shipped `components` directory. `:silent t` skips the line for each file. Omit `:silent`, or pass `:silent f`, and the prompt writes a line as each file is read:
+
+```
+Loading .../Thing.km...
+.../Thing.km loaded!
+```
+
+The answer after the load is the list of `.km` names. Some files record an error and the load continues. The prompt then adds `WARNING: Errors occurred during reasoning`. The knowledge base from the files that loaded stays available on the next line.
+
+`(require ...)`, `(def ...)`, and `kb/load-lib` are Clojure. At `KM>` each of those lines is a Knowledge Machine expression and answers nil.
+
+To load one directory, pass its path with forward slashes. A backslash in a Knowledge Machine string is an escape.
+
+```
+KM> (load-lib "src/resources/km-component-library/rkf-clib/components/science/physics" :silent t)
+```
+
+`:silentp t` is the same flag. A quoted path works: `(load-lib '"src/resources/km-component-library/rkf-clib/components/science/physics" :silent t)`.
+
+A program that calls the loader from Clojure starts with `clojure` and passes the knowledge base in:
+
+```clojure
+(require '[som.kb :as kb]
+         '[som.km.engine :as engine])
+
+(def session (engine/session))
+(def loaded (kb/load-lib (:kb session) (:query session) :silent true))
+```
+
+Pass the returned `:kb` and `:query` into the next call. The same call loads one part of the library:
+
+```clojure
+(kb/load-lib (:kb session)
+             (:query session)
+             (str kb/components-path "science/physics")
+             :silent true)
+```
+
+`:value` is the list of `.km` pathname-names, the file name with the directory and the `.km` suffix removed. `:lisp` lists the `.lisp` paths in the tree. Those files are Common Lisp, and this port leaves them unread. The prompt and HTTP answers include `:value` and leave `:lisp` off the printed result. `.kml` files and every other file type are skipped. The type test is case-sensitive.
+
+Each `.km` file is loaded with `load-kb`, which resets the inference engine at the start of that file. A subdirectory's files are placed in front of the entries already collected. Children of one directory are ordered with `string<`, upper case before lower case. The shipped library holds thousands of `.km` files. A form this port refuses follows the query's `:on-error`. The default records the error on `:errors` and continues with the rest of the library. A file the reader cannot finish records `Loading of ... aborted!` and the loader goes on to the next file. A missing directory records `No such directory` and `:value` is nil.
 
 ## License
 

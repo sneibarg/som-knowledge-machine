@@ -244,3 +244,60 @@
       (is (= 41 (:counter (:kb loaded))))
       (is (= "not-ported" (:error prompt)))
       (is (re-find #"setq is not evaluated" (:message prompt))))))
+
+(deftest a-save-writes-each-group-in-case-insensitive-name-order
+  (let [zebra (answer "(Zebra has (color (striped)))")
+        apple (on zebra "(Apple has (color (red)))")
+        text (:text (on apple "(write-kb)"))]
+    (is (< (.indexOf text "(Apple has") (.indexOf text "(Zebra has")))))
+
+(deftest a-load-counts-the-file-and-turns-inverses-on
+  (with-temp path
+    (spit path "(1 + 2)\n" :encoding "UTF-8")
+    (let [prior (answer "(1 + 2)")
+          loaded (on prior (str "(load-kb \"" (slash path) "\" :print-statistics t)"))
+          quiet (-> (:kb prior)
+                    (frame/set-installing-inverses false)
+                    (assoc-in [:runtime :reset-statistics-enabled?] false))
+          kept (engine/evaluate (str "(load-kb \"" (slash path) "\")")
+                                {:kb quiet :query (:query prior)})]
+      (is (= 2 (get-in prior [:query :query-directed-inferences])))
+      (is (= 2 (get-in loaded [:query :query-directed-inferences])))
+      (is (re-find #"\(2 inferences" (:text loaded)))
+      (is (re-find #"\(2 inferences" (:statistics loaded)))
+      (is (= 4 (get-in kept [:query :query-directed-inferences])))
+      (is (false? (get-in kept [:kb :runtime :reset-statistics-enabled?])))
+      (is (:installing-inverses? (:kb kept))))))
+
+(deftest a-lisp-function-with-backquote-does-not-abort-the-file
+  (with-temp path
+    (spit path (str "(every Atom has (charge (#'(LAMBDA () `(a ,b)))))\n"
+                    "(Salt has (superclasses (Thing)))\n")
+          :encoding "UTF-8")
+    (let [loaded (answer (str "(load-kb \"" (slash path) "\")"))]
+      (is (:ok loaded))
+      (is (= (term-of "(t)") (:value loaded)))
+      (is (not (str/includes? (str (:text loaded)) "aborted")))
+      (is (frame/known-frame? (:kb loaded) (symbol "Atom")))
+      (is (frame/known-frame? (:kb loaded) (symbol "Salt"))))))
+
+(deftest a-not-ported-form-inside-a-load-follows-on-error
+  (with-temp path
+    (spit path "(retain-expr (1 + 2))\n(Fred has (color (red)))\n" :encoding "UTF-8")
+    (let [continued (answer (str "(load-kb \"" (slash path) "\")"))
+          stopped (engine/evaluate (str "(load-kb \"" (slash path) "\")")
+                                   {:query {:on-error :abort}})]
+      (is (:ok continued))
+      (is (nil? (:error continued)))
+      (is (= (term-of "(t)") (:value continued)))
+      (is (= (term-of "(red)") (color-of continued)))
+      (is (some #(str/includes? % "not ported") (:errors continued)))
+      (is (not (str/includes? (str (:text continued)) "aborted")))
+      (is (some? (:statistics continued)))
+      (is (:ok stopped))
+      (is (nil? (:error stopped)))
+      (is (nil? (:value stopped)))
+      (is (str/includes? (:text stopped) "aborted"))
+      (is (some #(str/includes? % "not ported") (:errors stopped)))
+      (is (not (frame/known-frame? (:kb stopped) (symbol "Fred"))))
+      (is (some? (:statistics stopped))))))

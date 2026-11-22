@@ -5,7 +5,8 @@
   case of every symbol, treats #| ... |# as a comment, and installs #$
   #t and #, as dispatch macros. #: reads an uninterned name and interns
   it here. #. and #= would evaluate Lisp while reading, and those are
-  refused."
+  refused. A backquote is refused in a Knowledge Machine expression.
+  Inside #'( ... ), a Lisp backquote is kept as data and is not expanded."
   (:require [clojure.string :as str]
             [som.km.print :as print]
             [som.km.term :as term]))
@@ -308,9 +309,29 @@
   (let [[form index] (read-form text index opts)]
     [(term/km-list (symbol "unquote") form) index]))
 
+(defn- read-lisp-backquote
+  "A Lisp backquote inside #'. The form is kept, not expanded."
+  [text index opts]
+  (let [[form index] (read-form text (inc index)
+                                (update opts :bq-depth (fnil inc 0)))]
+    [(term/km-list (symbol "bq-backquote") form) index]))
+
+(defn- read-lisp-comma
+  "A comma, ,@, or ,. inside a Lisp backquote. The form is kept."
+  [text index opts]
+  (let [next-index (inc index)
+        [op start] (if (>= next-index (count text))
+                     ["bq-comma" next-index]
+                     (case (nth text next-index)
+                       \@ ["bq-comma-at" (inc next-index)]
+                       \. ["bq-comma-dot" (inc next-index)]
+                       ["bq-comma" next-index]))
+        [form end] (read-form text start opts)]
+    [(term/km-list (symbol op) form) end]))
+
 (defn- read-function
   [text index opts]
-  (let [[form index] (read-form text index opts)]
+  (let [[form index] (read-form text index (assoc opts :lisp? true :bq-depth 0))]
     [(term/km-list (symbol "function") form) index]))
 
 (defn- read-refused-eval
@@ -412,13 +433,17 @@
           (= ch \") (read-string-literal text (inc index))
           (= ch \') (read-quoted text (inc index) opts)
           (= ch \`)
-          (fail! index
-                 "Backquote is different in each Lisp. Knowledge Machine uses #, to unquote, and this reader refuses backquote."
-                 false)
+          (if (:lisp? opts)
+            (read-lisp-backquote text index opts)
+            (fail! index
+                   "Backquote is different in each Lisp. Knowledge Machine uses #, to unquote, and this reader refuses backquote."
+                   false))
           (= ch \,)
-          (fail! index
-                 "A comma is only valid inside a backquote. Knowledge Machine uses #, to unquote."
-                 false)
+          (if (and (:lisp? opts) (pos? (or (:bq-depth opts) 0)))
+            (read-lisp-comma text index opts)
+            (fail! index
+                   "A comma is only valid inside a backquote. Knowledge Machine uses #, to unquote."
+                   false))
           (= ch \#) (read-dispatch text (inc index) opts)
           :else (read-atom text index))))))
 

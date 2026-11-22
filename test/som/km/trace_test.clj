@@ -159,6 +159,38 @@
 (deftest a-zero-interval-report-has-one-closing-parenthesis
   (is (= "(0 inferences and 0 KB accesses in 0.0 sec)\n" (stats/report {} {}))))
 
+(deftest a-positive-interval-keeps-the-extra-parenthesis
+  (let [text (stats/report {:runtime {:kb-accesses 1}}
+                           {:statistics-cpu-start (- (System/nanoTime) 1000000000)
+                            :query-directed-inferences 2
+                            :classification-inferences 0})]
+    (is (str/starts-with? text "(2 inferences and 1 KB accesses in "))
+    (is (str/ends-with? text " kaps]))\n"))))
+
+(def ^:private version-banner
+  (let [rule (str (apply str (repeat 6 \space))
+                  (apply str (repeat 52 \=)))]
+    (str rule "\n"
+         "      KM - THE KNOWLEDGE MACHINE - INFERENCE ENGINE v" engine/km-version "\n"
+         rule "\n"
+         "Copyright (C) 1994-2015 Peter Clark and Bruce Porter. KM comes with ABSOLUTELY\n"
+         "NO WARRANTY. This is free software, and you are welcome to redistribute it\n"
+         "under certain conditions. Type (license) for details.\n\n")))
+
+(deftest version-prints-the-banner-and-answers-t
+  (let [result (answer "(version)")
+        upper (answer "(VERSION)")
+        extra (answer "(version extra)")]
+    (is (:ok result))
+    (is (nil? (:error result)))
+    (is (= (term-of "(t)") (:value result)))
+    (is (= version-banner (:text result)))
+    (is (str/includes? (:statistics result) "inferences"))
+    (is (= version-banner (:text upper)))
+    (is (= (term-of "(t)") (:value upper)))
+    (is (= "not-ported" (:error extra)))
+    (is (str/includes? (:message extra) "Embedded Lisp is refused"))))
+
 (deftest an-extra-trace-argument-stays-an-embedded-lisp-refusal
   (let [extra (answer "(trace extra)")
         mixed (answer "(Trace)")]

@@ -5,6 +5,7 @@
             [som.km.explain :as explain]
             [som.km.frame :as frame]
             [som.km.read :as read]
+            [som.km.taxonomy :as taxonomy]
             [som.km.term :as term]
             [som.km.utils :as utils]))
 
@@ -146,15 +147,51 @@
 
 (deftest a-cycle-in-a-walk-is-a-broken-taxonomy
   (let [looped (answer "(Cat has (subclasses (Cat)))")
+        subs (on looped "(the subclasses of Cat)")
+        all (on looped "(the all-subclasses of Cat)")
         slots (answer "(color has (subslots (hue)))")
-        back (on slots "(hue has (subslots (color)))")]
+        back (on slots "(hue has (subslots (color)))")
+        walked (on back "(the all-subslots of color)")]
     (is (= (term "(Cat)") (:value looped)))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"own subclass"
-                          (on looped "(the subclasses of Cat)")))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"own subclass"
-                          (on looped "(the all-subclasses of Cat)")))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"own subslot"
-                          (on back "(the all-subslots of color)")))))
+    (is (nil? (:value subs)))
+    (is (some #(re-find #"own subclass" %) (:errors subs)))
+    (is (nil? (:value all)))
+    (is (some #(re-find #"own subclass" %) (:errors all)))
+    (is (some #(re-find #"own subslot" %) (:errors walked)))
+    (is (= #{(symbol "hue") (symbol "color")} (items (:value walked))))))
+
+(deftest a-taxonomy-cycle-is-recorded-and-the-listing-finishes
+  (let [base (answer "(Base has (superclasses (Ionic-Compound-Substance)))")
+        ionic (on base "(Ionic-Compound-Substance has (superclasses (Strong-Electrolyte)))")
+        strong (on ionic "(Strong-Electrolyte has (superclasses (Electrolyte)))")
+        electrolyte (on strong "(Electrolyte has (superclasses (Ionic-Compound-Substance)))")
+        mixture (on electrolyte "(Mixture has (superclasses (Base Thing)))")
+        tree (on mixture "(taxonomy)")
+        cycle "(Base -> Ionic-Compound-Substance -> Strong-Electrolyte -> Electrolyte -> Ionic-Compound-Substance)"]
+    (is (:ok tree))
+    (is (= (term "(t)") (:value tree)))
+    (is (some #(str/includes? % cycle) (:errors tree)))
+    (is (str/includes? (:text tree) "Thing"))
+    (is (str/includes? (:text tree) "Mixture"))))
+
+(deftest an-override-climb-stops-on-a-taxonomy-cycle
+  (let [flag (answer "(color has (inherit-with-overrides (t)))")
+        cat (on flag "(Cat has (superclasses (Animal)))")
+        animal (on cat "(Animal has (superclasses (Cat)))")
+        bare (on animal "(_Cat2 has (instance-of (Cat)))")
+        color (on bare "(the color of _Cat2)")
+        ruled (on animal "(every Animal has (color (black)))")
+        inst (on ruled "(_Cat1 has (instance-of (Cat)))")
+        kept (on inst "(the color of _Cat1)")]
+    (is (nil? (:value color)))
+    (is (some #(str/includes? % "(Cat -> Animal -> Cat)") (:errors color)))
+    (is (= (term "(black)") (:value kept)))))
+
+(deftest a-cycle-outside-an-evaluation-still-throws
+  (let [a (answer "(A has (superclasses (B)))")
+        b (on a "(B has (superclasses (A)))")]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cycle in the taxonomy"
+                          (taxonomy/is-subclass-of? (:kb b) (symbol "A") (symbol "Thing"))))))
 
 (deftest an-inherited-constraint-is-checked
   (let [ruled (answer "(every Cat has (color ((mustnt-be-a Dog))))")

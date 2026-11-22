@@ -303,7 +303,7 @@
     (is (nil? (:value empty)))
     (is (empty? (:errors empty)))
     (is (str/includes? text "COMMENTS"))
-    (is (< (.indexOf text "[Pet]") (.indexOf text "[Dog]")))
+    (is (< (.indexOf text "[Dog]") (.indexOf text "[Pet]")))
     (is (str/includes? text "(comment [Pet] \"a pet\" \"owned\")"))))
 
 (deftest why-prints-entry-and-exit-text

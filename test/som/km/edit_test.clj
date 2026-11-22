@@ -139,7 +139,7 @@
         past (on named "(theNth 5 of (:set x y))")
         bad (on past "(theNth 0 of (a Cat))")
         quiet (answer "(theNth nil of 1)")
-        refused (answer "(theNth (showme 1) of (a Cat))")]
+        refused (answer "(theNth (retain-expr 1) of (a Cat))")]
     (is (= (term "(red blue)") (:value colors)))
     (is (= (term "(red)") (:value first)))
     (is (= (term "(blue)") (:value second)))

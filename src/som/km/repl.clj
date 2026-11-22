@@ -10,8 +10,11 @@
 
   A line that is only the start of an expression is not answered yet.
   The prompt keeps reading lines until the expression is complete.
-  A local situation is shown in brackets and a theory in braces."
-  (:require [som.km.engine :as engine]
+  A load that is not silent writes each file's line as that file is
+  read. A local situation is shown in brackets and a theory in braces."
+  (:require [clojure.string :as str]
+            [som.km.engine :as engine]
+            [som.km.loadkb :as loadkb]
             [som.km.print :as print]
             [som.km.read :as read]
             [som.km.situations :as situations])
@@ -40,16 +43,40 @@
   [text]
   (boolean (:incomplete (engine/evaluate text))))
 
+(defn- unechoed
+  "The part of text that with-echo-text has not already written.
+
+  chunks are the strings add-text wrote, in order. Each one is removed
+  from text. Text recorded somewhere else stays, in its place."
+  [text chunks]
+  (loop [text (str text)
+         chunks chunks
+         acc ""]
+    (cond
+      (str/blank? text) acc
+      (empty? chunks) (str acc text)
+      :else
+      (let [chunk (first chunks)
+            at (str/index-of text chunk)]
+        (if (nil? at)
+          (str acc text)
+          (recur (subs text (+ at (count chunk)))
+                 (rest chunks)
+                 (str acc (subs text 0 at))))))))
+
 (defn reply-text
   "Text to print for one engine result.
 
   A successful result prints :text, when the command produced some, and
-  then the answer in km-format. Nil prints as nil. Errors add the
-  warning on that same line. When :statistics is present, it follows on
-  the next line. A refusal with no :text prints :message."
+  then the answer in km-format. Lines already written by with-echo-text
+  are left out. Nil prints as nil. Errors add the warning on that same
+  line. When :statistics is present, it follows on the next line. A
+  refusal with no :text prints :message."
   [result]
   (if (or (:ok result) (some? (:text result)))
-    (str (:text result)
+    (str (if-let [chunks (loadkb/echoed-chunks)]
+           (unechoed (:text result) chunks)
+           (:text result))
          (print/km-format (:value result))
          (when (seq (:errors result))
            "   ; (WARNING: Errors occurred during reasoning)")
@@ -74,13 +101,16 @@
   "Turn one prompt line into a reply. :leave is true when the session ends.
 
   session is an atom from session. Without it, the line is evaluated on
-  a fresh vocabulary and the result is discarded."
+  a fresh vocabulary and the result is discarded. Load text is written
+  as each file is read. The returned :text is the answer, plus any
+  lines that were not written during the load."
   ([line]
    (respond line nil))
   ([line session]
    (if (leave-command? line)
      {:leave true :text ""}
-     {:leave false :text (reply-text (evaluate-in line session))})))
+     (loadkb/with-echo-text
+       (fn [] {:leave false :text (reply-text (evaluate-in line session))})))))
 
 (defn banner
   "Opening text for an interactive session."
@@ -95,21 +125,27 @@
      "Expressions are evaluated. q leaves the prompt.\n")))
 
 (defn- report
-  "Print the reply for one expression, reading more lines when it is unfinished."
+  "Print the reply for one expression, reading more lines when it is unfinished.
+
+  Load text is written as each file is read. The reply after the
+  expression finishes is the answer, plus lines that were not written
+  during the load."
   [text session]
-  (loop [text text]
-    (let [result (evaluate-in text session)]
-      (if (:incomplete result)
-        (do
-          (print "> ")
-          (flush)
-          (if-let [more (read-line)]
-            (recur (str text "\n" more))
-            (when (seq (:message result))
-              (println (:message result)))))
-        (let [shown (reply-text result)]
-          (when (seq shown)
-            (println shown)))))))
+  (loadkb/with-echo-text
+    (fn []
+      (loop [text text]
+        (let [result (evaluate-in text session)]
+          (if (:incomplete result)
+            (do
+              (print "> ")
+              (flush)
+              (if-let [more (read-line)]
+                (recur (str text "\n" more))
+                (when (seq (:message result))
+                  (println (:message result)))))
+            (let [shown (reply-text result)]
+              (when (seq shown)
+                (println shown)))))))))
 
 (defn -main
   "Run the prompt until q or end of input."

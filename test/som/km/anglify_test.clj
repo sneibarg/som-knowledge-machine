@@ -6,7 +6,8 @@
             [som.km.engine :as engine]
             [som.km.frame :as frame]
             [som.km.read :as read]
-            [som.km.term :as term]))
+            [som.km.term :as term]
+            [som.km.utils :as utils]))
 
 (defn- term-of [text]
   (:value (read/read-term text)))
@@ -55,6 +56,24 @@
     (is (= "A cat. The dog." (text-of period)))
     (is (= "Cat's." (text-of owned)))))
 
+(deftest a-number-below-one-uses-the-lisp-exponent-width
+  (let [small (answer "(make-phrase 0.0001)")
+        negative (answer "(make-phrase -0.5)")
+        wider (answer "(make-phrase 1.0e-10)")
+        below (answer "(make-phrase -5.0)")
+        zero (answer "(make-phrase 0.0)")
+        fixed (answer "(make-phrase 1.5)")
+        trimmed (answer "(make-phrase 0.5)")]
+    (is (= "1.000e-4" (text-of small)))
+    (is (= "-5.000e-1" (text-of negative)))
+    (is (= "1.000e-10" (text-of wider)))
+    (is (= "-5.000e+0" (text-of below)))
+    (is (= "0.000e+0" (text-of zero)))
+    (is (= "1.500" (text-of fixed)))
+    (is (= "0.5" (text-of trimmed)))
+    (is (empty? (:errors small)))
+    (is (:ok small))))
+
 (deftest andify-joins-with-and-and-commas
   (let [two (answer "(make-phrase (andify (:set \"a\" \"b\")))")
         three (answer "(make-phrase (andify (:set \"a\" \"b\" \"c\")))")]
@@ -98,7 +117,7 @@
                                     :depth 101)]
     (is (some #(str/includes? % "Infinite recursion") (:errors (:state result))))))
 
-(deftest taxonomy-prints-thing-in-list-order
+(deftest taxonomy-prints-thing-in-symbol-order
   (let [fresh (answer "(taxonomy)")
         integer (on fresh "(the superclasses of Integer)")
         moth (answer "(Moth has (superclasses (Thing)))")
@@ -119,7 +138,7 @@
     (is (= (term-of "(Number)") (:value integer)))
     (is (re-find #"(?m)^   Yak$" text))
     (is (re-find #"(?m)^   Moth$" text))
-    (is (< (.indexOf text "\n   Yak\n") (.indexOf text "\n   Moth\n")))
+    (is (< (.indexOf text "\n   Moth\n") (.indexOf text "\n   Yak\n")))
     (is (re-find #"(?m)^I     Fred$" text))
     (is (nil? (re-find #"(?m)^I .*_Cat9$" text)))
     (is (nil? (re-find #"(?m)^I .*_Hidden1$" text)))
@@ -132,6 +151,39 @@
     (is (:ok extra))
     (is (nil? (:value extra)))
     (is (some #(str/includes? % "Too many arguments") (:errors extra)))))
+
+(deftest taxonomy-sorts-unplaced-frames-and-warns-on-a-partition
+  (let [animal (answer "(Animal has (superclasses (Thing)))")
+        cat (on animal "(Cat has (superclasses (Animal)))")
+        dog (on cat "(Dog has (superclasses (Animal)))")
+        mutt (on dog "(Mutt has (superclasses (Cat Dog)))")
+        parted (on mutt "(a Partition with (members (Cat Dog)))")
+        fish (on parted "(Fish has (subclasses (Goldfish)))")
+        zebra (on fish "(Zebra has (color (striped)))")
+        ant (on zebra "(Ant has (color (black)))")
+        tree (on ant "(taxonomy)")
+        text (:text tree)
+        fish-supers (frame/get-vals (:kb tree) (symbol "Fish") (symbol "superclasses"))
+        thing-subs (frame/get-vals (:kb fish-supers) (symbol "Thing") (symbol "subclasses"))
+        gold (frame/get-vals (:kb thing-subs) (symbol "Goldfish") (symbol "superclasses"))
+        hits (filterv #(str/includes? % "Partition violation") (:warnings tree))
+        member-line (some (fn [warning]
+                            (some #(when (str/includes? % "(Cat Dog)") %)
+                                  (str/split-lines warning)))
+                          hits)]
+    (is (= 1 (count hits)))
+    (is (str/includes? (first hits) "Mutt"))
+    (is (re-find #"partition\(s\) _Partition\d+ were violated" (first hits)))
+    (is (some? member-line))
+    (is (= 25 (str/index-of member-line "(Cat Dog)")))
+    (is (re-find #"(?m)^   Fish$" text))
+    (is (nil? (re-find #"(?m)^\?  Fish$" text)))
+    (is (nil? (:value fish-supers)))
+    (is (not (some #(utils/eql? % (symbol "Fish")) (utils/elements (:value thing-subs)))))
+    (is (some #(utils/eql? % (symbol "Fish")) (utils/elements (:value gold))))
+    (is (re-find #"(?m)^\?  Ant$" text))
+    (is (re-find #"(?m)^\?  Zebra$" text))
+    (is (< (.indexOf text "?  Ant") (.indexOf text "?  Zebra")))))
 
 (deftest justify-leaves-prints-one-english-sentence
   (let [ruled (answer "(every Cat has (color (black)))")

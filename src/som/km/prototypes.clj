@@ -194,7 +194,7 @@
   otherwise. bind-self? replaces Self. The root is created before
   prototype mode is on, so this does not add that root as a participant.
   A participant created while mode is on is linked to the current
-  prototype. The caller classifies. The assertions slot is not run."
+  prototype. The caller classifies and runs the assertions slot."
   [state class slotsvals & {:keys [prefix bind-self?] :or {bind-self? true}}]
   (let [described (class-of-description class)
         parent (or described class)
@@ -256,7 +256,7 @@
   "The expression stored on the prototype. The Lisp writes a-prototoype when there are no slots."
   [class slotsvals]
   (if (nil? slotsvals)
-    (term/km-list (symbol "a-prototype") class)
+    (term/km-list (symbol "a-prototoype") class)
     (term/build-list [(symbol "a-prototype") class (symbol "with")] slotsvals)))
 
 (defn enter-prototype

@@ -351,24 +351,37 @@
   "Rules on class, or on the classes above it when class has none.
 
   A value that is not a constraint stops that branch. Thing does not
-  climb any further."
+  climb any further. A class already on this climb is a taxonomy cycle:
+  the sentence is recorded and that branch stops. Outside an evaluation
+  the same cycle throws."
   [kb slot class]
-  (let [here (pairs-for-classes kb slot (term/km-list class))]
-    (if (substantive-sets? (first-rules (:value here)))
-      here
-      (if (utils/eql? class (symbol "Thing"))
-        {:kb (:kb here) :value nil}
-        (let [supers (taxonomy/immediate-superclasses (:kb here) class)]
-          (loop [rest (:value supers)
-                 kb (:kb supers)
-                 acc nil]
-            (if (nil? rest)
-              {:kb kb :value acc}
-              (let [deeper (override-pairs kb slot (term/car rest))]
-                (recur (term/cdr rest)
-                       (:kb deeper)
-                       (utils/append-lists
-                        (term/km-list acc (:value deeper))))))))))))
+  (letfn [(climb [kb class path]
+            (if (utils/member? class path)
+              {:kb kb
+               :value (taxonomy/note-cycle
+                       (conj (vec (reverse (utils/elements path))) class))}
+              (let [here (pairs-for-classes kb slot (term/km-list class))]
+                (if (substantive-sets? (first-rules (:value here)))
+                  here
+                  (if (utils/eql? class (symbol "Thing"))
+                    {:kb (:kb here) :value nil}
+                    (let [supers (taxonomy/immediate-superclasses
+                                  (:kb here) class)]
+                      (loop [rest (:value supers)
+                             kb (:kb supers)
+                             acc nil]
+                        (if (nil? rest)
+                          {:kb kb :value acc}
+                          (let [deeper (climb kb
+                                              (term/car rest)
+                                              (term/cons-cell class path))]
+                            (recur (term/cdr rest)
+                                   (:kb deeper)
+                                   (utils/append-lists
+                                    (term/km-list
+                                     acc
+                                     (:value deeper)))))))))))))]
+    (climb kb class nil)))
 
 (defn- strip-pairs
   [pairs instance]
@@ -1538,24 +1551,21 @@
 
   first, second, third, fourth, fifth, last, number, bag, and seq are
   computed from the list. unification and set-unification are passed
-  back through km-int. most-specific and most-general are refused:
-  they need description subsumption."
+  back through km-int. most-specific keeps the most specific classes.
+  most-general keeps the most general classes."
   [state frames slot km-int & {:keys [fail-mode] :or {fail-mode :fail}}]
   (let [frames (frame/dereference (:kb state) frames)
         rejected (or (reject-frames state frames) (reject-slot state slot))]
     (cond
       (some? rejected) rejected
 
-      (or (utils/eql? slot (symbol "most-specific"))
-          (utils/eql? slot (symbol "most-general")))
-      (assoc state
-             :error "not-ported"
-             :message (str "This form is not ported yet: (the "
-                           (print/km-format slot)
-                           " of "
-                           (print/km-format (kb/vals-to-val frames))
-                           ").")
-             :value nil)
+      (utils/eql? slot (symbol "most-specific"))
+      (let [kept (taxonomy/remove-subsumers (:kb state) frames)]
+        (assoc state :kb (:kb kept) :value (:value kept)))
+
+      (utils/eql? slot (symbol "most-general"))
+      (let [kept (taxonomy/remove-subsumees (:kb state) frames)]
+        (assoc state :kb (:kb kept) :value (:value kept)))
 
       (contains? set-position slot)
       (let [found (position-value frames slot)]

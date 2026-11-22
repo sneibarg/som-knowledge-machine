@@ -261,3 +261,44 @@
     (is (str/includes? (:statistics parsed) "inferences"))
     (is (= (without-statistics (server/client-body (engine/evaluate text)))
            (without-statistics parsed)))))
+
+(deftest version-is-answered-over-http
+  (let [text "(version)"
+        response (server/handler {:request-method :post
+                                  :uri "/query"
+                                  :headers {"content-type" "text/plain; charset=utf-8"}
+                                  :body (body text)})
+        parsed (parse response)]
+    (is (= 200 (:status response)))
+    (is (= [{:symbol "t"}] (:value parsed)))
+    (is (str/includes? (str (:text parsed)) (str "INFERENCE ENGINE v" engine/km-version)))
+    (is (str/includes? (:statistics parsed) "inferences"))
+    (is (= (without-statistics (server/client-body (engine/evaluate text)))
+           (without-statistics parsed)))))
+
+(deftest has-value-is-answered-over-http
+  (let [text "(has-value (1 + 2))"
+        response (server/handler {:request-method :post
+                                  :uri "/query"
+                                  :headers {"content-type" "text/plain; charset=utf-8"}
+                                  :body (body text)})
+        parsed (parse response)]
+    (is (= 200 (:status response)))
+    (is (= [{:symbol "t"}] (:value parsed)))
+    (is (str/includes? (:statistics parsed) "inferences"))
+    (is (= (without-statistics (server/client-body (engine/evaluate text)))
+           (without-statistics parsed)))))
+
+(deftest an-empty-prototype-misspelling-is-answered-over-http
+  (let [text "(a-prototoype Cat)"
+        response (server/handler {:request-method :post
+                                  :uri "/query"
+                                  :headers {"content-type" "text/plain; charset=utf-8"}
+                                  :body (body text)})
+        parsed (parse response)
+        name (:symbol (first (:value parsed)))]
+    (is (= 200 (:status response)))
+    (is (str/starts-with? name "_Proto"))
+    (is (str/includes? (:statistics parsed) "inferences"))
+    (is (= (without-statistics (server/client-body (engine/evaluate text)))
+           (without-statistics parsed)))))

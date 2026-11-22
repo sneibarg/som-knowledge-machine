@@ -38,7 +38,7 @@
         else (answer "(if (not t) then 1 else 2)")
         false-atom (answer "(if f then 1 else 2)")
         missing (answer "(if nil then 1)")
-        refused (answer "(if (showme 1) then (a Cat) else (a Dog))")]
+        refused (answer "(if (retain-expr 1) then (a Cat) else (a Dog))")]
     (is (= (term "(1)") (:value then)))
     (is (empty? (:errors then)))
     (is (some? (:statistics then)))
@@ -60,7 +60,7 @@
         named (answer "(allof ?x in (:set 1 2 3) where (?x > 1))")
         named-map (answer "(forall ?x in (:set 1 2) (?x + 1))")
         nested (answer "(allof2 (:set 1 2) where (It2 > 1))")
-        refused (answer "(forall (:set 1) (showme It))")]
+        refused (answer "(forall (:set 1) (retain-expr It))")]
     (is (= (term "(2 3)") (:value kept)))
     (is (= (term "(2)") (:value one)))
     (is (= (term "(2 3)") (:value mapped)))

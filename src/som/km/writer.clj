@@ -2,11 +2,12 @@
   "Print a frame, or a whole knowledge base, as Knowledge Machine text.
 
   write-frame emits (frame has (slot (values))). A situation or a theory
-  wraps that form. write-kb walks frames in the order they were first
-  stored, with slots, theories, situations, and prototypes grouped so a
-  later load can read the wrappers. Two writes of one value match. The
-  header does not include a clock. HTML names go through htextify, which
-  returns nothing."
+  wraps that form. write-kb groups slots, theories, situations, and
+  prototypes so a later load can read the wrappers. Each group, and the
+  comment tags in the file, are sorted with string-lessp. A tie keeps
+  the order the names were first stored. Two writes of one value match.
+  The header does not include a clock. HTML names go through htextify,
+  which returns nothing."
   (:require [clojure.string :as str]
             [som.km.explain :as explain]
             [som.km.frame :as frame]
@@ -63,6 +64,18 @@
          (utils/eql? (term/car expr) (symbol "quote"))
          (term/singleton? (term/cdr expr)))
     (str "'" (objwrite kb (term/car (term/cdr expr)) htmlify?))
+
+    (and (term/cons? expr)
+         (term/km-symbol? (term/car expr))
+         (utils/eql? (term/car expr) (symbol "function"))
+         (term/singleton? (term/cdr expr)))
+    (str "#'" (objwrite kb (term/car (term/cdr expr)) htmlify?))
+
+    (and (term/cons? expr)
+         (term/km-symbol? (term/car expr))
+         (utils/eql? (term/car expr) (symbol "unquote"))
+         (term/singleton? (term/cdr expr)))
+    (str "#," (objwrite kb (term/car (term/cdr expr)) htmlify?))
 
     (term/cons? expr)
     (let [parts (loop [cell expr
@@ -225,9 +238,30 @@
                  (recur (term/cdr prototypes) (str acc lines)))))
            "|#\n\n"))))
 
+(defn- restore-situation-names
+  "The names a save writes back into an assertion.
+
+  Reading the assertion binds Self, so the stored form uses #,Self for
+  TheSituation and SubSelf for a user's Self. equal matches the whole
+  #,Self list, and that list is not walked."
+  [expr]
+  (cond
+    (utils/equal? expr (term/km-list (symbol "unquote") (symbol "Self")))
+    (symbol "TheSituation")
+    (utils/eql? expr (symbol "SubSelf"))
+    (symbol "Self")
+    (term/cons? expr)
+    (term/cons-cell (restore-situation-names (term/car expr))
+                    (restore-situation-names (term/cdr expr)))
+    :else expr))
+
 (defn- situation-assertions
+  "Assertions of a situation class, written as (in-every-situation ...).
+
+  The class is a subclass of Situation. Situation itself qualifies.
+  An instance of Situation does not, so its own assertions stay unwritten."
   [kb frame htmlify?]
-  (let [under (taxonomy/isa? kb frame (symbol "Situation"))]
+  (let [under (taxonomy/is-subclass-of? kb frame (symbol "Situation"))]
     (if-not (:value under)
       ""
       (let [props (facet-slots kb frame (symbol "member-properties") term/global-situation)
@@ -251,7 +285,10 @@
                               (str "(in-every-situation "
                                    (objwrite kb frame htmlify?)
                                    "\n  "
-                                   (objwrite kb (term/car (term/cdr assertion)) htmlify?)
+                                   (objwrite kb
+                                             (restore-situation-names
+                                              (term/car (term/cdr assertion)))
+                                             htmlify?)
                                    ")\n\n")
                               "")
                             ))))))))))
@@ -351,11 +388,16 @@
   [kb frame class-name]
   (boolean (:value (taxonomy/isa? kb frame class-name))))
 
+(defn- by-name-ci
+  "string-lessp. A name that differs only by case keeps its earlier place."
+  [frames]
+  (vec (sort-by #(str/lower-case (term/symbol-name %)) frames)))
+
 (defn- group-frames
   "Slot, theory, and situation frames first, then prototypes, then the rest.
 
-  Each group keeps the order the frames were first stored. Comment tags
-  are returned separately. The Lisp sorts each group by symbol name."
+  Each group is sorted with string-lessp. The stored slot order stays.
+  Comment tags are returned separately and sorted the same way."
   [kb]
   (let [order (vec (:frame-order kb))
         slots (class-names kb (symbol "Slot"))
@@ -369,18 +411,21 @@
                 :situation []
                 :prototype []
                 :rest []}]
-    (reduce (fn [groups frame]
-              (cond
-                (explain/user-comment? frame) (update groups :comment conj frame)
-                (contains? slots frame) (update groups :slot conj frame)
-                (contains? theories frame) (update groups :theory-class conj frame)
-                (isa-name? kb frame (symbol "Theory")) (update groups :theory conj frame)
-                (contains? situations frame) (update groups :situation-class conj frame)
-                (isa-name? kb frame (symbol "Situation")) (update groups :situation conj frame)
-                (prototype? kb frame) (update groups :prototype conj frame)
-                :else (update groups :rest conj frame)))
-            groups
-            order)))
+    (reduce (fn [groups key]
+              (update groups key by-name-ci))
+            (reduce (fn [groups frame]
+                      (cond
+                        (explain/user-comment? frame) (update groups :comment conj frame)
+                        (contains? slots frame) (update groups :slot conj frame)
+                        (contains? theories frame) (update groups :theory-class conj frame)
+                        (isa-name? kb frame (symbol "Theory")) (update groups :theory conj frame)
+                        (contains? situations frame) (update groups :situation-class conj frame)
+                        (isa-name? kb frame (symbol "Situation")) (update groups :situation conj frame)
+                        (prototype? kb frame) (update groups :prototype conj frame)
+                        :else (update groups :rest conj frame)))
+                    groups
+                    order)
+            (keys groups))))
 
 (defn- quoted
   [value]
@@ -484,12 +529,12 @@
                 places))))
 
 (defn- comment-section
-  "The COMMENTS section, in the order the tags were first stored.
+  "The COMMENTS section. Tags are sorted with string-lessp.
 
-  A knowledge base with no user comments writes nothing here. The tag
-  sort by symbol name waits for a later step."
+  A knowledge base with no user comments writes nothing here. The list
+  (show-comment ...) returns stays in the order the tags were stored."
   [kb]
-  (let [tags (filterv explain/user-comment? (frame/comment-tags kb))]
+  (let [tags (by-name-ci (filterv explain/user-comment? (frame/comment-tags kb)))]
     (if (empty? tags)
       ""
       (apply str

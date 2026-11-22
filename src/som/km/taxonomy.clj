@@ -6,7 +6,9 @@
   inherited from classes, supersituations, or projection. A class with
   nothing stored and no built-in link has Thing as its superclass. A
   stored list still wins over that fallthrough and over a built-in
-  link. A cycle is a broken taxonomy and throws.
+  link. A cycle is a broken taxonomy. During an evaluation the walk
+  records the sentence and continues. A call outside an evaluation
+  throws.
 
   immediate-classes reads instance-of on the instance. An expression
   stored there is not evaluated. A missing instance-of is (Thing).
@@ -18,15 +20,81 @@
   the class itself out. immediate-superclasses adds Thing only when
   nothing is stored and the class is not a built-in link.
 
-  taxonomy-text prints the tree. The walk follows the relation in list
-  order. It does not sort by symbol name and it does not follow hash
-  order. The interpreter is passed in as km-int."
+  taxonomy-text prints the tree. Each printed level is sorted with
+  string< on the symbol name. The stored slot order stays as it was.
+  Descending subclasses removes a redundant link and then checks
+  partitions. That check records a warning and does not store a
+  superclass for an unplaced class. The interpreter is passed in as
+  km-int."
   (:refer-clojure :exclude [isa?])
-  (:require [som.km.frame :as frame]
+  (:require [clojure.string :as str]
+            [som.km.errors :as errors]
+            [som.km.frame :as frame]
             [som.km.kbutils :as kb]
             [som.km.print :as print]
             [som.km.term :as term]
             [som.km.utils :as utils]))
+
+(def ^:dynamic *cycle-errors*
+  "Sentences for cycles found while an evaluation is running.
+
+  Nil outside an evaluation. The outermost km-int binds an atom and
+  drains it onto the query when that evaluation returns. A nested
+  km-int sees the same atom and does not drain it. A walk that finds a
+  cycle records a sentence and returns nil. A direct call, with this
+  unbound, still throws."
+  nil)
+
+(defn- cycle-break
+  "Record one cycle sentence, or throw when no evaluation is running.
+
+  The return value is nil, which is what the Lisp report-error returns."
+  [message]
+  (if (some? *cycle-errors*)
+    (do (swap! *cycle-errors* conj message) nil)
+    (throw (ex-info message {}))))
+
+(defn attach-cycle-errors
+  "Move cycle sentences recorded during this evaluation onto the query.
+
+  The outermost km-int calls this. A nested km-int leaves the sentences
+  on the same atom. Each sentence is a user error. Abort mode throws
+  from report-error and keeps the knowledge base on the exception.
+  An empty record leaves the query unchanged."
+  [state]
+  (let [notes (when (some? *cycle-errors*) @*cycle-errors*)]
+    (if (empty? notes)
+      state
+      (do
+        (reset! *cycle-errors* [])
+        (reduce (fn [state message]
+                  (errors/report-error state :user-error "%s" message))
+                state
+                notes)))))
+
+(defn- arrowed
+  "The walk printed the way commaed-list does with delimiter ->."
+  [names]
+  (str "(" (str/join " -> " (map str names)) ")"))
+
+(defn- taxonomy-cycle
+  "The sentence is-subclass-of, all-superclasses0, and all-subclasses0 report."
+  [names]
+  (str "You have a cycle in the taxonomy (not allowed)!\n" (arrowed names)))
+
+(defn- own-cycle
+  "The sentence immediate-superclasses and immediate-subclasses report."
+  [class kind]
+  (str "Cycle in the KB! " class " is its own " kind "!"))
+
+(defn note-cycle
+  "Record one taxonomy cycle and return nil.
+
+  names are oldest first and end with the class that repeated. Outside
+  an evaluation this throws. The sentence matches is-subclass-of and
+  all-superclasses0."
+  [names]
+  (cycle-break (taxonomy-cycle names)))
 
 (def ^:private thing (symbol "Thing"))
 (def ^:private class-name (symbol "Class"))
@@ -117,12 +185,14 @@
     {:kb kb :value nil}))
 
 (defn- drop-self
-  "Stored superclasses, or a throw when the class lists itself."
+  "Stored superclasses. A class that lists itself is removed.
+
+  The sentence is recorded. Outside an evaluation the same case throws.
+  Nil means nothing stored remains, and the caller falls through."
   [class stored]
   (if (and (some? stored) (utils/member? class stored))
-    (throw (ex-info (str "You have a cycle in the taxonomy (not allowed)! "
-                         class " is its own superclass.")
-                    {:class class}))
+    (do (cycle-break (own-cycle class "superclass"))
+        (utils/remove-items class stored))
     stored))
 
 (defn immediate-superclasses
@@ -155,9 +225,10 @@
               (utils/eql? class target) {:kb kb :value class}
               (utils/eql? class thing) {:kb kb :value nil}
               (utils/member? class path)
-              (throw (ex-info (str "You have a cycle in the taxonomy (not allowed)! "
-                                   (pr-str (into (vec (reverse (utils/elements path))) [class])))
-                              {:class class :path path}))
+              {:kb kb
+               :value (cycle-break
+                       (taxonomy-cycle
+                        (conj (vec (reverse (utils/elements path))) class)))}
               (and (kb/kb-object? class) (kb/kb-object? target))
               (let [supers (immediate-superclasses kb class)]
                 (if (utils/member? target (:value supers))
@@ -176,15 +247,17 @@
 (defn all-superclasses0
   "class and the classes stored above it, without Thing.
 
-  Duplicates may remain. A cycle throws."
+  Duplicates may remain. A cycle is recorded and that branch is nil.
+  Outside an evaluation the same cycle throws."
   [kb class]
   (letfn [(walk [kb class path]
             (cond
               (utils/eql? class thing) {:kb kb :value []}
               (utils/member? class path)
-              (throw (ex-info (str "You have a cycle in the taxonomy (not allowed)! "
-                                   (pr-str (into (vec (reverse (utils/elements path))) [class])))
-                              {:class class :path path}))
+              {:kb kb
+               :value (cycle-break
+                       (taxonomy-cycle
+                        (conj (vec (reverse (utils/elements path))) class)))}
               :else
               (let [supers (immediate-superclasses kb class)]
                 (loop [rest (:value supers)
@@ -253,15 +326,16 @@
 (defn remove-subsumees
   "The most general classes. A subclass is dropped.
 
-  A constraint expression is kept. Order follows the input, and a later
-  duplicate is dropped."
+  Each class is compared with the whole list, so a subclass that appears
+  after its superclass is still dropped. A constraint expression is kept.
+  Order follows the input, and a later duplicate is dropped."
   [kb classes]
-  (let [kept (loop [classes classes
+  (let [kept (loop [pending classes
                     kb kb
                     acc []]
-               (if (nil? classes)
+               (if (nil? pending)
                  {:kb kb :value acc}
-                 (let [class (term/car classes)
+                 (let [class (term/car pending)
                        covered (loop [others classes
                                       kb kb]
                                  (if (nil? others)
@@ -275,7 +349,7 @@
                                          (if (some? (:value under))
                                            {:kb (:kb under) :value true}
                                            (recur (term/cdr others) (:kb under))))))))]
-                   (recur (term/cdr classes)
+                   (recur (term/cdr pending)
                           (:kb covered)
                           (if (:value covered) acc (conj acc class))))))]
     (assoc kept :value (utils/remove-duplicates (chain (:value kept))
@@ -588,32 +662,37 @@
   Thing uses the stored list, the unused built-in children, and the
   unplaced classes. Another class uses its stored subclasses, or the
   built-in children when nothing is stored. A class listed as its own
-  subclass is a broken taxonomy and throws."
+  subclass is removed. The sentence is recorded. Outside an evaluation
+  the same case throws. Nothing left falls through to the built-in
+  children."
   [kb class]
   (if (utils/eql? class thing)
     (subclasses-of-thing kb)
     (let [found (read-global kb class (symbol "subclasses"))
-          stored (:value found)]
-      (cond
-        (and (some? stored) (utils/member? class stored))
-        (throw (ex-info (str "You have a cycle in the taxonomy (not allowed)! "
-                             class " is its own subclass.")
-                        {:class class}))
-        (some? stored) found
-        :else {:kb (:kb found) :value (builtin-subclasses class)}))))
+          stored (:value found)
+          stored (if (and (some? stored) (utils/member? class stored))
+                   (do (cycle-break (own-cycle class "subclass"))
+                       (utils/remove-items class stored))
+                   stored)]
+      (if (some? stored)
+        (assoc found :value stored)
+        {:kb (:kb found) :value (builtin-subclasses class)}))))
 
 (defn all-subclasses
   "The classes under class, not including class.
 
-  A later duplicate is kept. A cycle throws."
+  A later duplicate is kept. A cycle is recorded and that branch is
+  nil. The printed walk is not reversed. Outside an evaluation the
+  same cycle throws."
   [kb class]
   (let [imm (immediate-subclasses kb class)]
     (letfn [(walk [kb class path]
               (cond
                 (utils/member? class path utils/eql?)
-                (throw (ex-info (str "You have a cycle in the taxonomy (not allowed)! "
-                                     class " is its own subclass.")
-                                {:class class :path path}))
+                {:kb kb
+                 :value (cycle-break
+                         (taxonomy-cycle
+                          (into [class] (utils/elements path))))}
                 :else
                 (let [below (immediate-subclasses kb class)]
                   (loop [rest (:value below)
@@ -695,13 +774,16 @@
 (defn all-subslots
   "slot's subslots and the subslots under those. slot is left out.
 
-  A cycle throws."
+  A cycle is recorded and that branch is nil. The slot that closed the
+  cycle stays on the parent's list. Outside an evaluation the same
+  cycle throws."
   [kb slot]
   (letfn [(walk [kb slot path]
             (if (utils/member? slot path utils/eql?)
-              (throw (ex-info (str "You have a cycle in the subslots (not allowed)! "
-                                   slot " is its own subslot.")
-                              {:slot slot :path path}))
+              {:kb kb
+               :value (cycle-break
+                       (str "You have a cycle in the subslots (not allowed)! "
+                            slot " is its own subslot."))}
               (let [imm (immediate-subslots kb slot)]
                 (loop [rest (:value imm)
                        kb (:kb imm)
@@ -728,13 +810,16 @@
 (defn all-superslots
   "slot's superslots and the superslots above those. slot is left out.
 
-  A cycle throws."
+  A cycle is recorded and that branch is nil. The slot that closed the
+  cycle stays on the parent's list. Outside an evaluation the same
+  cycle throws."
   [kb slot]
   (letfn [(walk [kb slot path]
             (if (utils/member? slot path utils/eql?)
-              (throw (ex-info (str "You have a cycle in the superslots (not allowed)! "
-                                   slot " is its own superslot.")
-                              {:slot slot :path path}))
+              {:kb kb
+               :value (cycle-break
+                       (str "You have a cycle in the superslots (not allowed)! "
+                            slot " is its own superslot."))}
               (let [imm (immediate-superslots kb slot)]
                 (loop [rest (:value imm)
                        kb (:kb imm)
@@ -852,19 +937,123 @@
                          state
                          (extras (:value found) (:value shrunk)))))))))
 
-(defn clean-taxonomy
-  "Remove a redundant superclass or subclass link.
+(defn- member-of-above
+  "member-of on class and the classes above it.
 
-  The three progress lines are recorded on :text. Partition checking
-  is not run. The Lisp prints the same three lines and then checks
-  partitions."
+  The class itself is included. Thing is not added. A repeated
+  partition is the signal that those classes are disjoint."
+  [kb class]
+  (let [above (all-superclasses0 kb class)]
+    (loop [classes (:value above)
+           kb (:kb above)
+           acc []]
+      (if (nil? classes)
+        {:kb kb :value acc}
+        (let [found (read-global kb (term/car classes) (symbol "member-of"))]
+          (recur (term/cdr classes)
+                 (:kb found)
+                 (into acc (utils/elements (:value found)))))))))
+
+(defn- first-copies
+  [items]
+  (reduce (fn [acc item]
+            (if (some #(utils/eql? item %) acc)
+              acc
+              (conj acc item)))
+          []
+          items))
+
+(defn- repeated
+  "Items that occur more than once, in the order of the first copy."
+  [items]
+  (filterv (fn [item]
+             (> (count (filter #(utils/eql? item %) items)) 1))
+           (first-copies items)))
+
+(defn- pad-to-column
+  "Spaces so the next character is at column. Column 0 starts the line.
+
+  This is the Lisp ~nT directive. A line already past the column gets
+  one space."
+  [line column]
+  (let [width (count line)
+        spaces (if (< width column) (- column width) 1)]
+    (str line (apply str (repeat spaces \space)))))
+
+(defn- partition-lines
+  [kb violated]
+  (loop [parts violated
+         kb kb
+         lines []]
+    (if (empty? parts)
+      {:kb kb :lines lines}
+      (let [part (first parts)
+            members (read-global kb part (symbol "members"))
+            head (str "     " (print/km-format part) ":")]
+        (recur (rest parts)
+               (:kb members)
+               (conj lines (str (pad-to-column head 25)
+                                (print/km-format (:value members)))))))))
+
+(defn- warn-partition
+  [state class violated]
+  (let [lines (partition-lines (:kb state) violated)
+        named (term/delistify (term/build-list violated nil))
+        body (str "Partition violation!\n"
+                  "   Some of " (print/km-format class)
+                  "'s superclasses are mutually exclusive, partition(s) "
+                  (print/km-format named)
+                  " were violated:\n"
+                  (str/join "\n" (:lines lines))
+                  "\n")]
+    (errors/report-error (assoc state :kb (:kb lines))
+                         :user-warning
+                         "%s"
+                         body)))
+
+(defn- violated-partitions-at-class
+  [state class]
+  (let [found (member-of-above (:kb state) class)
+        parts (:value found)
+        state (assoc state :kb (:kb found))]
+    (if (= (count parts) (count (first-copies parts)))
+      state
+      (warn-partition state class (repeated parts)))))
+
+(defn- check-partitions
+  "Warn for a class under Thing whose superclasses share a partition.
+
+  The live clean-taxonomy calls this and does not call
+  update-subclasses-of-thing, so an unplaced class is not stored as a
+  subclass of Thing. The listing can still mark a frame the walk did
+  not reach."
+  [state]
+  (let [below (all-subclasses (:kb state) thing)]
+    (loop [classes (utils/elements (:value below))
+           state (assoc state :kb (:kb below))]
+      (if (empty? classes)
+        state
+        (recur (rest classes)
+               (violated-partitions-at-class state (first classes)))))))
+
+(defn clean-taxonomy
+  "Remove a redundant superclass or subclass link, then check partitions.
+
+  The three progress lines are recorded on :text. A violated partition
+  is a warning. An unplaced class is left without a stored superclass."
   [state]
   (-> state
       (add-text "Removing redundant superclasses...\n")
       (drop-redundant (symbol "superclasses") remove-subsumers)
       (add-text "Removing redundant subclasses...\n")
       (drop-redundant (symbol "subclasses") remove-subsumees)
-      (add-text "Computing subclasses of Thing...\n")))
+      (add-text "Computing subclasses of Thing...\n")
+      check-partitions))
+
+(defn- by-symbol-name
+  "string< on the symbol name. The stored slot is left in its order."
+  [items]
+  (sort-by term/symbol-name items))
 
 (defn- spaces
   [n]
@@ -917,9 +1106,9 @@
       (let [children (slot-of instances node relation km-int)]
         (if (refused-state? children)
           {:state children :lines [item] :done done}
-          (let [named (named-values (:kb children) (:value instances))
-                specs (filterv utils/lisp-atom?
-                               (utils/elements (:value children)))
+          (let [named (by-symbol-name (named-values (:kb children) (:value instances)))
+                specs (by-symbol-name (filterv utils/lisp-atom?
+                                               (utils/elements (:value children))))
                 instance-lines (mapv #(line-for (:kb children) %
                                                 (+ tab indent) htmlify? :instance)
                                      named)]
@@ -985,17 +1174,18 @@
                                    (frame/anonymous-instance? kb name))
                              acc
                              (conj acc name))))))]
-    (mapv #(line-for kb % indent htmlify? :unplaced) names)))
+    (mapv #(line-for kb % indent htmlify? :unplaced) (by-symbol-name names))))
 
 (defn taxonomy-text
   "The lines of (taxonomy node relation), and the knowledge base.
 
-  Descending subclasses removes redundant links first and records the
-  three progress lines. Under Thing those lines are followed by Thing,
-  then each subclass in list order, then a named frame the walk did not
-  reach. A named instance is marked with I. An unplaced frame is marked
-  with ?. Three spaces is one level. htmlify omits a known frame's name
-  because htextify returns nothing. The command does not pass htmlify."
+  Descending subclasses removes redundant links first, checks
+  partitions, and records the three progress lines. Under Thing those
+  lines are followed by Thing, then each subclass in symbol-name order,
+  then a named frame the walk did not reach, in that same order. A
+  named instance is marked with I. An unplaced frame is marked with ?.
+  Three spaces is one level. htmlify omits a known frame's name because
+  htextify returns nothing. The command does not pass htmlify."
   [state node relation km-int & {:keys [htmlify?] :or {htmlify? false}}]
   (let [node (or node thing)
         relation (or relation (symbol "subclasses"))
@@ -1005,8 +1195,9 @@
     (if (and (utils/eql? node thing)
              (utils/eql? relation (symbol "subclasses")))
       (let [top (immediate-subclasses (:kb state) thing)
-            children (filterv #(not (utils/eql? % thing))
-                              (utils/elements (:value top)))
+            children (by-symbol-name
+                      (filterv #(not (utils/eql? % thing))
+                               (utils/elements (:value top))))
             state (assoc state :kb (:kb top))
             walked (tax-nodes state children relation km-int htmlify? #{} indent)]
         (if (refused-state? (:state walked))

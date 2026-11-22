@@ -2,14 +2,17 @@
   "Load and save a knowledge base, and undo a logged change.
 
   load-kb reads a file as UTF-8, or as ISO-8859-1 when the bytes are not
-  UTF-8, and evaluates each expression. save-kb writes the text from
-  som.km.writer. fastsave-kb and fastload-kb stay refused.
+  UTF-8, and evaluates each expression. The inference engine is reset
+  once at the start of the load. A form that is not ported yet follows
+  :on-error. save-kb writes the text from som.km.writer. fastsave-kb
+  and fastload-kb stay refused.
 
   Logging is off until start-logging. A checkpoint remembers the
   knowledge base value. undo restores that value. keeping-kb evaluates
   an expression and then restores the value from before it. The creation
   log records frames added while it is on, and undo-creations deletes
-  the anonymous ones."
+  the anonymous ones. with-echo-text writes each load line as the file
+  is read. The lines stay on :text."
   (:refer-clojure :exclude [load-file])
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
@@ -25,6 +28,7 @@
             [som.km.stack :as stack]
             [som.km.stats :as stats]
             [som.km.term :as term]
+            [som.km.trace :as trace]
             [som.km.utils :as utils]
             [som.km.writer :as writer])
   (:import [java.nio ByteBuffer]
@@ -32,11 +36,47 @@
 
 (def ^:private keeping-id (symbol "%keeping-kb-cpid%"))
 
+(def ^:private ^:dynamic *echo-text*
+  "When true, add-text also writes to *out* and flushes.
+
+  The prompt binds this through with-echo-text. A long load then shows
+  each file as it is read. Callers that leave it false only see :text
+  on the returned value."
+  false)
+
+(def ^:private ^:dynamic *echoed*
+  "An atom of strings already written by add-text, or nil."
+  nil)
+
+(defn with-echo-text
+  "Call f while load text is written to *out* as it is recorded.
+
+  The lines stay on :text. echoed-chunks is what was written, in
+  order, so the prompt can leave those lines out of the final reply."
+  [f]
+  (binding [*echo-text* true
+            *echoed* (atom [])]
+    (f)))
+
+(defn echoed-chunks
+  "The load text already written to *out* during with-echo-text.
+
+  Nil when with-echo-text is not in force."
+  []
+  (when (some? *echoed*)
+    (vec @*echoed*)))
+
 (defn- add-text
   [state text]
   (if (str/blank? (str text))
     state
-    (assoc state :text (str (:text state) text))))
+    (do
+      (when *echo-text*
+        (print text)
+        (flush)
+        (when (some? *echoed*)
+          (swap! *echoed* conj (str text))))
+      (assoc state :text (str (:text state) text)))))
 
 (defn- one
   [state value]
@@ -682,9 +722,16 @@
                            :fail-mode (or (:top-level-fail-mode (:query state)) :fail))]
         (cond
           (= "not-ported" (:error result))
-          {:state (add-text result (str "Loading of " (:file options) " aborted!\n"))
-           :done? true
-           :alist alist}
+          (let [noted (cond-> (dissoc result :error :message)
+                        (some? (:message result))
+                        (update :errors (fnil conj []) (:message result)))
+                stop? (not (continue? result))]
+            {:state (if stop?
+                      (add-text (assoc noted :value nil)
+                                (str "Loading of " (:file options) " aborted!\n"))
+                      noted)
+             :done? stop?
+             :alist alist})
 
           (and (seq (:errors result))
                (> (count (:errors result)) (count (:errors state)))
@@ -739,11 +786,26 @@
           (let [step (try
                        (load-one state (:value read) km-int alist options)
                        (catch clojure.lang.ExceptionInfo thrown
-                         (if (errors/abort-exception? thrown)
+                         (cond
+                           (errors/abort-exception? thrown)
                            {:state (add-text (:state (ex-data thrown))
                                              (str "Loading of " (:file options) " aborted!\n"))
                             :done? true
                             :alist alist}
+
+                           ;; A cycle during an evaluation is recorded and the
+                           ;; expression continues. This catch remains when a
+                           ;; walk still throws, so one form does not abandon
+                           ;; the rest of the library.
+                           (and (continue? state)
+                                (str/includes? (or (.getMessage thrown) "")
+                                               "cycle in the taxonomy"))
+                           {:state (errors/report-error state :user-error "%s"
+                                                        (.getMessage thrown))
+                            :done? false
+                            :alist alist}
+
+                           :else
                            (throw thrown))))]
             (if (:done? step)
               (let [kb (-> (:kb (:state step))
@@ -756,17 +818,51 @@
   [state file]
   (none (errors/report-error state :user-error "No such file %s!" file)))
 
+(defn- reset-for-load
+  "The start of load-kb. This is reset-inference-engine.
+
+  Inverses are turned on, the goal stack and the trace are cleared, and
+  the counters are zeroed when reset statistics is enabled. A missing
+  file still comes through here. Expressions inside the file do not."
+  [state]
+  (let [kb (-> (:kb state)
+               trace/reset-trace
+               (frame/set-installing-inverses true))
+        query (assoc (:query state)
+                     :goal-stack nil
+                     :instances-being-unified nil
+                     :trace-depth 0
+                     :looping? false)
+        state (assoc state :kb kb :query query)]
+    (if-not (stats/reset-enabled? kb)
+      state
+      (let [now (System/nanoTime)]
+        (-> state
+            (assoc-in [:kb :runtime :kb-accesses] 0)
+            (assoc :query (assoc query
+                                 :classification-inferences 0
+                                 :query-directed-inferences 0
+                                 :skolems 0
+                                 :unifications 0
+                                 :max-depth 0
+                                 :classifications-attempted 0
+                                 :classifications-succeeded 0
+                                 :statistics-cpu-start now
+                                 :spot-runtime now)))))))
+
 (defn load-file
   "Evaluate the expressions in file.
 
   with-morphism renames symbols before each expression is evaluated.
-  A missing file records an error and answers nil. The loaded text
-  includes (reset-kb) when it was written by save-kb."
+  The inference engine is reset after the loading line and before the
+  file is opened. A missing file records an error and answers nil. The
+  loaded text includes (reset-kb) when it was written by save-kb."
   [state file km-int & {:keys [verbose with-morphism eval-instances load-patterns
                                print-statistics silent]}]
-  (let [state (if (truth? silent)
-                state
-                (add-text state (str "Loading " file "...\n")))]
+  (let [state (reset-for-load
+               (if (truth? silent)
+                 state
+                 (add-text state (str "Loading " file "...\n"))))]
     (if-let [text (read-file-text file)]
     (let [converted (if (nil? with-morphism)
                       {:state state :alist (:renaming (:kb state))}
