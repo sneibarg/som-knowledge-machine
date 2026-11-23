@@ -1,0 +1,270 @@
+;; Som-Level-Directive.km
+;; The first matching hunt rule. Rules 5 and 6 are not branches.
+;;
+;; These four engine rules already ran and are not here:
+;; danger at play.flee_hp, leave a threat the engine did not engage,
+;; stand after a position refusal, and an owed reply.
+;; A personality yield, a gear strategy, and a catalog pick are absent.
+;; som-gear-gate is consulted only by rule 1.
+
+(Som-Level-Directive has
+  (superclasses (Thing)))
+
+(som-directive-role has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the role of this license")))
+
+(som-allow-social has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("no blocks a greeting while this directive exists")))
+
+(som-attempts has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the attempts this license sends")))
+
+(som-health-line has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("missed, clear, or empty")))
+(som-health-line-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-health-line")))
+(som-survey-reading has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the first reading with no consider")))
+(som-survey-reading-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-survey-reading")))
+(som-engage-reading has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the first reading this notch will fight")))
+(som-engage-reading-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-engage-reading")))
+(som-exit-allowed has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the notch may open an untried exit")))
+(som-exit-allowed-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-exit-allowed")))
+(som-licensed-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the first hunt rule that matches")))
+(som-licensed-rule-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-licensed-rule")))
+(som-role-for-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the role for the licensed rule")))
+(som-role-for-rule-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-role-for-rule")))
+(som-attempts-for-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the attempts for the licensed rule")))
+(som-attempts-for-rule-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-attempts-for-rule")))
+(som-licensed-directive-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-licensed-directive")))
+
+(every Som-Goal-View has
+  (som-health-line ((the som-health-line-rule of Self)))
+  (som-survey-reading ((the som-survey-reading-rule of Self)))
+  (som-engage-reading ((the som-engage-reading-rule of Self)))
+  (som-exit-allowed ((the som-exit-allowed-rule of Self)))
+  (som-licensed-rule ((the som-licensed-rule-rule of Self)))
+  (som-role-for-rule ((the som-role-for-rule-rule of Self)))
+  (som-attempts-for-rule ((the som-attempts-for-rule-rule of Self)))
+  (som-licensed-directive ((the som-licensed-directive-rule of Self)))
+
+  (som-health-line-rule
+    ((if ((has-value (the som-max-hit of (the som-progress of Self)))
+          and
+          (has-value (the som-hit of (the som-progress of Self))))
+         then (if ((the som-notch of Self) = cautious)
+                  then (if ((((the som-hit of (the som-progress of Self))
+                              / (the som-max-hit of (the som-progress of Self)))
+                             <= (1 / 2)))
+                           then missed
+                           else clear)
+                  else (if ((the som-notch of Self) = steady)
+                           then (if ((((the som-hit of (the som-progress of Self))
+                                       / (the som-max-hit of (the som-progress of Self)))
+                                      <= (1 / 3)))
+                                    then missed
+                                    else clear)
+                           else (if ((the som-notch of Self) = bold)
+                                    then (if ((has-value (the som-flee-floor of (the som-progress of Self)))
+                                              and
+                                              ((the som-hit of (the som-progress of Self))
+                                               <= (the som-flee-floor of (the som-progress of Self))))
+                                             then missed
+                                             else clear)))))))
+
+  (som-survey-reading-rule
+    ((if (has-value (the som-reading of (the som-progress of Self)))
+         then (the1 of
+               (forall-seq ?r in (the som-reading of (the som-progress of Self))
+                           where (not (has-value (the som-outlook of ?r)))
+                           ?r)))))
+
+  (som-engage-reading-rule
+    ((if (has-value (the som-reading of (the som-progress of Self)))
+         then (the1 of
+               (forall-seq ?r in (the som-reading of (the som-progress of Self))
+                           where
+                           (((((the som-outlook of ?r) = safe)
+                             and
+                             (((the som-notch of Self) = cautious)
+                              or
+                              ((the som-notch of Self) = steady)
+                              or
+                              ((the som-notch of Self) = bold)))
+                            or
+                            (((the som-outlook of ?r) = even)
+                             and
+                             (((the som-notch of Self) = steady)
+                              or
+                              ((the som-notch of Self) = bold)))
+                            or
+                            (((the som-outlook of ?r) = risky)
+                             and
+                             ((the som-notch of Self) = bold)))
+                            and
+                            ((the som-fresh of ?r) = t)
+                            and
+                            (not ((the som-player of ?r) = t)))
+                           ?r)))))
+
+  (som-exit-allowed-rule
+    ((if ((the som-notch of Self) = cautious)
+         then (if (((the som-pace of Self) = behind)
+                   and
+                   (not ((the som-repop-room of (the som-progress of Self)) = t)))
+                  then t)
+         else (if (((the som-notch of Self) = steady)
+                   or
+                   ((the som-notch of Self) = bold))
+                  then (if (((not (has-value (the som-engage-reading of Self)))
+                             and
+                             (not (has-value (the som-survey-reading of Self)))))
+                           then t)))))
+
+  (som-licensed-rule-rule
+    ((if ((the som-clock-stale of Self) = t)
+         then nil
+         else (if (((the som-met of Self) = t)
+                   and
+                   (not (has-value (the som-gear-gate of (the som-progress of Self)))))
+                  then 1
+                  else (if ((the som-score-due of Self) = t)
+                           then 2
+                           else (if (((not (has-value (the som-areas-known of (the som-progress of Self))))
+                                      and
+                                      ((the som-score-count of (the som-progress of Self)) > 0)))
+                                    then 3
+                                    else (if (((the som-fighting of (the som-progress of Self)) = t)
+                                              and
+                                              ((the som-health-line of Self) = missed))
+                                             then 4
+                                             else (if (((not ((the som-fighting of (the som-progress of Self)) = t))
+                                                        and
+                                                        ((the som-health-line of Self) = missed)))
+                                                      then 7
+                                                      else (if (((not ((the som-fighting of (the som-progress of Self)) = t))
+                                                                 and
+                                                                 ((the som-health-line of Self) = clear)
+                                                                 and
+                                                                 ((the som-position of (the som-progress of Self)) = resting)))
+                                                               then 7
+                                                               else (if (has-value (the som-survey-reading of Self))
+                                                                        then 8
+                                                                        else (if (has-value (the som-engage-reading of Self))
+                                                                                 then 9
+                                                                                 else (if (((not (has-value (the som-survey-reading of Self)))
+                                                                                            and
+                                                                                            (not (has-value (the som-engage-reading of Self)))
+                                                                                            and
+                                                                                            ((the som-exit-allowed of Self) = t)
+                                                                                            and
+                                                                                            (has-value (the som-untried-exits of (the som-progress of Self)))
+                                                                                            and
+                                                                                            (not ((the som-untried-exits of (the som-progress of Self)) = (:seq)))))
+                                                                                          then 10
+                                                                                          else (if (((not (has-value (the som-survey-reading of Self)))
+                                                                                                     and
+                                                                                                     (not (has-value (the som-engage-reading of Self)))
+                                                                                                     and
+                                                                                                     ((the som-repop-room of (the som-progress of Self)) = t)
+                                                                                                     and
+                                                                                                     (((the som-pace of Self) = ahead)
+                                                                                                      or
+                                                                                                      ((the som-pace of Self) = on)
+                                                                                                      or
+                                                                                                      ((the som-pace of Self) = open)
+                                                                                                      or
+                                                                                                      ((the som-pace of Self) = sampling))))
+                                                                                                   then 11
+                                                                                                   else (if (((not ((the som-checkpoint-due of Self) = t))
+                                                                                                              and
+                                                                                                              (not ((the som-exit-allowed of Self) = t))
+                                                                                                              and
+                                                                                                              (has-value (the som-untried-exits of (the som-progress of Self)))
+                                                                                                              and
+                                                                                                              (not ((the som-untried-exits of (the som-progress of Self)) = (:seq)))
+                                                                                                              and
+                                                                                                              (not (has-value (the som-survey-reading of Self)))
+                                                                                                              and
+                                                                                                              (not (has-value (the som-engage-reading of Self)))))
+                                                                                                            then 12
+                                                                                                            else (if ((the som-checkpoint-due of Self) = t)
+                                                                                                                     then 13
+                                                                                                                     else 14)))))))))))))))
+
+  (som-role-for-rule-rule
+    ((if ((the som-licensed-rule of Self) = 2)
+         then survey
+         else (if ((the som-licensed-rule of Self) = 3)
+                  then survey
+                  else (if ((the som-licensed-rule of Self) = 4)
+                           then escape
+                           else (if ((the som-licensed-rule of Self) = 7)
+                                    then recover
+                                    else (if ((the som-licensed-rule of Self) = 8)
+                                             then survey
+                                             else (if ((the som-licensed-rule of Self) = 9)
+                                                      then engage
+                                                      else (if ((the som-licensed-rule of Self) = 10)
+                                                               then travel
+                                                               else (if ((the som-licensed-rule of Self) = 11)
+                                                                        then (if ((the som-room-stale of (the som-progress of Self)) = t)
+                                                                                 then survey
+                                                                                 else hold)
+                                                                        else (if ((the som-licensed-rule of Self) = 12)
+                                                                                 then travel
+                                                                                 else (if ((the som-licensed-rule of Self) = 13)
+                                                                                          then checkpoint))))))))))))
+
+  (som-attempts-for-rule-rule
+    ((if ((the som-licensed-rule of Self) = 2)
+         then (:args survey "information / communication" score "")
+         else (if ((the som-licensed-rule of Self) = 3)
+                  then (:seq (:args survey "information / communication" areas "")
+                             (:args survey "information / communication" where ""))
+                  else (if ((the som-licensed-rule of Self) = 4)
+                           then (:args escape combat flee "")
+                           else (if ((the som-licensed-rule of Self) = 7)
+                                    then (if ((the som-health-line of Self) = clear)
+                                             then (:args recover movement stand "")
+                                             else (:args recover movement rest ""))
+                                    else (if ((the som-licensed-rule of Self) = 8)
+                                             then (:args survey "information / communication" consider
+                                                         (the som-mobile-name of (the som-survey-reading of Self)))
+                                             else (if ((the som-licensed-rule of Self) = 9)
+                                                      then (:args engage combat kill
+                                                                  (the som-mobile-name of (the som-engage-reading of Self)))
+                                                      else (if ((the som-licensed-rule of Self) = 10)
+                                                               then (forall-seq ?e in (the som-untried-exits of (the som-progress of Self))
+                                                                                where t
+                                                                                (:args travel movement ?e ""))
+                                                               else (if ((the som-licensed-rule of Self) = 11)
+                                                                        then (if ((the som-room-stale of (the som-progress of Self)) = t)
+                                                                                 then (:args survey objects look "")
+                                                                                 else (:seq))
+                                                                        else (if ((the som-licensed-rule of Self) = 12)
+                                                                                 then (:seq (:args travel movement recall "")
+                                                                                            (:args survey "information / communication" where ""))
+                                                                                 else (if ((the som-licensed-rule of Self) = 13)
+                                                                                          then (:args checkpoint other save "")))))))))))))
+
+  (som-licensed-directive-rule
+    ((if (((the som-clock-stale of Self) = t)
+          or
+          (not (has-value (the som-licensed-rule of Self)))
+          or
+          ((the som-licensed-rule of Self) = 1)
+          or
+          ((the som-licensed-rule of Self) = 14))
+         then nil
+         else (a Som-Level-Directive with
+                 (som-directive-role ((the som-role-for-rule of Self)))
+                 (som-allow-social (no))
+                 (som-attempts ((the som-attempts-for-rule of Self)))))))
+)

@@ -147,18 +147,24 @@
               (when (seq shown)
                 (println shown)))))))))
 
+(defn run
+  "Read and evaluate lines until q or end of input.
+
+  session is an atom from session. The banner is left to the caller."
+  [session]
+  (loop []
+    (print (situations/prompt-text (:kb @session)))
+    (flush)
+    (when-let [line (read-line)]
+      (if (leave-command? line)
+        nil
+        (do
+          (report line session)
+          (recur))))))
+
 (defn -main
   "Run the prompt until q or end of input."
   [& _]
   (print (banner))
   (flush)
-  (let [session (session)]
-    (loop []
-      (print (situations/prompt-text (:kb @session)))
-      (flush)
-      (when-let [line (read-line)]
-        (if (leave-command? line)
-          nil
-          (do
-            (report line session)
-            (recur)))))))
+  (run (session)))

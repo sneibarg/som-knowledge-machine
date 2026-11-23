@@ -1,0 +1,29 @@
+;; Som-Mobile-Reading.km
+;; One mobile on the projection. KM does not sort the sequence.
+
+(Som-Mobile-Reading has
+  (superclasses (Thing)))
+
+(som-mobile-name has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the mobile name")))
+
+(som-outlook has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the consider outlook")))
+
+(som-fresh has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the consider was taken in this room during this visit")))
+
+(som-player has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the engine says this is a player")))

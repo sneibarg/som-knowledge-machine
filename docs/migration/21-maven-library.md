@@ -34,3 +34,16 @@ Both build tasks passed on the project JDK. The packaged Java 17 smoke test
 used the locally installed JAR and its runtime dependencies. Spring Boot
 nested-JAR verification and publication to Nexus remain part of the consumer
 integration.
+
+## Component-loader packaging correction
+
+The interpreter now requires `som.kb` for `(load-lib)`. The JAR copies Clojure
+sources from `src/som` into `som`, including both `som/kb.clj` and `som/km`.
+Copying only `src/som/km` made published artifacts fail on engine initialization
+with a missing `som/kb.clj`. This corrects packaging without changing inference.
+
+Run `clojure -T:build jar`, inspect `jar tf` for `som/kb.clj`, and require
+`som.km.engine` from that JAR outside the source checkout before publishing.
+Component directories remain external inputs to `(load-lib)`; they are not
+embedded by this correction. Rebuild and publish the corrected artifact before
+refreshing the NLP service's Maven dependency.

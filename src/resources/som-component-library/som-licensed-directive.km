@@ -1,0 +1,18 @@
+;; som-licensed-directive.km
+;; The view is licensed as one directive, or as nothing on a yield.
+
+(som-licensed-directive has
+  (instance-of (Slot))
+  (domain (Thing))
+  (range (Som-Level-Directive))
+  (inverse (som-licensed-directive-of))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (original-slot (t)))
+
+(som-licensed-directive has (text-gloss ("is licensed as")))
+
+(som-licensed-directive-of has
+  (instance-of (Slot))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("is the directive of")))

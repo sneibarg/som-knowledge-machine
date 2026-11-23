@@ -1,0 +1,18 @@
+;; som-reading.km
+;; One sequence of mobile readings, in the order the caller projected.
+
+(som-reading has
+  (instance-of (Slot))
+  (domain (Thing))
+  (range (Som-Mobile-Reading))
+  (inverse (som-reading-of))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (original-slot (t)))
+
+(som-reading has (text-gloss ("includes the reading")))
+
+(som-reading-of has
+  (instance-of (Slot))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("is a reading on")))

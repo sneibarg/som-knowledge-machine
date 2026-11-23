@@ -1,0 +1,192 @@
+;; Som-Progress-Projection.km
+;; One projection of WorkingMemory's goal section. Discarded after the query.
+;; Input slots only. No rule writes an input slot.
+
+(Som-Progress-Projection has
+  (superclasses (Thing)))
+
+(som-event has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the event this projection answers")))
+
+(som-clock-kind has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the kind stored on the clock")))
+
+(som-clock-target has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the target stored on the clock")))
+
+(som-start-level has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the level on the first score")))
+
+(som-start-fraction has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the fraction on the first score")))
+
+(som-level has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the level on the latest score")))
+
+(som-exp-to-level has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("experience to level on the latest score page")))
+
+(som-exp-span has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("experience span taken from the first score on this level")))
+
+(som-exp-estimate has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("experience to level after a receive line, before the next score")))
+
+(som-score-page-exp has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("experience to level on a score page that replaces the estimate")))
+
+(som-elapsed-minutes has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("minutes since the first score")))
+
+(som-score-count has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("scores already folded into this projection")))
+
+(som-first-score has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("this score is the first one on the clock")))
+
+(som-prior-notch has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the notch stored before this event")))
+
+(som-cooldown-steps has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("cooldown steps still stored")))
+
+(som-saves has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("checkpoints stored on this level")))
+
+(som-score-steps has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("steps since the last score. Python stores 0 after a score is folded in")))
+
+(som-score-forced has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the engine marked a score due, as after a fight")))
+
+(som-met-in has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("met was already stored")))
+
+(som-deadline-in has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("deadline missed was already stored")))
+
+(som-max-hit has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("max hit on the latest score, if that page printed it")))
+
+(som-hit has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("hit points the engine is using for this step")))
+
+(som-position has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the position word on the latest score")))
+
+(som-areas-known has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("at least one area record is stored")))
+
+(som-fighting has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the engine says the character is fighting")))
+
+(som-opponent-outlook has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("not projected. Rules 5 and 6 are not licensed until a player proposal names the fight marker")))
+
+(som-repop-room has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the engine has seen a kill in this room")))
+
+(som-room-stale has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the session room record needs another look")))
+
+(som-gear-gate has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the gear gate the engine copied, or empty")))
+
+(som-flee-floor has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("play.flee_hp as copied by the engine. Empty means the bold line is not applied")))
+
+(som-untried-exits has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("exits this process has not taken")))

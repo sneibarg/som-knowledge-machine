@@ -1,0 +1,328 @@
+;; Som-Goal-View.km
+;; Conclusions for one projection. Input slots are not restated here.
+
+(Som-Goal-View has
+  (superclasses (Thing)))
+
+(som-clock-stale has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the clock was started for a different kind or target")))
+(som-clock-stale-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-clock-stale")))
+(som-exp-used has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the experience figure fraction uses")))
+(som-exp-used-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-exp-used")))
+(som-estimate-overwritten has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("a score page replaced an experience estimate")))
+(som-estimate-overwritten-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-estimate-overwritten")))
+(som-fraction has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("fraction through the level")))
+(som-fraction-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-fraction")))
+(som-levels-earned has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("levels earned since the clock started")))
+(som-levels-earned-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-levels-earned")))
+(som-current-level-as-fraction has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("level plus fraction")))
+(som-current-level-as-fraction-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-current-level-as-fraction")))
+(som-remaining-levels has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("target minus the fractional level")))
+(som-remaining-levels-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-remaining-levels")))
+(som-remaining-minutes has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("budget minus elapsed minutes")))
+(som-remaining-minutes-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-remaining-minutes")))
+(som-needed has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("levels per minute still required")))
+(som-needed-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-needed")))
+(som-actual has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("levels per minute so far")))
+(som-actual-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-actual")))
+(som-sample-ready has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("two minutes and two scores have been seen")))
+(som-sample-ready-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-sample-ready")))
+(som-pace has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the pace band")))
+(som-pace-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-pace")))
+(som-pace-band has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("behind, on, or ahead once the sample is ready")))
+(som-pace-band-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-pace-band")))
+(som-pace-withheld has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("not set. A used-up unmet budget is behind, not a withheld band")))
+(som-pace-withheld-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-pace-withheld")))
+(som-span-reading has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the span is a positive first reading on this level")))
+(som-span-reading-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-span-reading")))
+(som-met has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("a score has shown the target level or higher")))
+(som-met-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-met")))
+(som-deadline-missed has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the budget ran out unmet")))
+(som-deadline-missed-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-deadline-missed")))
+(som-notch has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the notch after this event")))
+(som-notch-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-notch")))
+(som-notch-moved has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("how the notch moved")))
+(som-notch-moved-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-notch-moved")))
+(som-cooldown-next has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the cooldown to store after this event")))
+(som-cooldown-next-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-cooldown-next")))
+(som-raised-one has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the notch one step up, stopping at the ceiling")))
+(som-raised-one-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-raised-one")))
+(som-dropped-one has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the notch one step down, stopping at cautious")))
+(som-dropped-one-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-dropped-one")))
+(som-dropped-on-death has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the notch after a death")))
+(som-dropped-on-death-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-dropped-on-death")))
+(som-notch-on-score has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the notch a score query stores")))
+(som-notch-on-score-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-notch-on-score")))
+(som-notch-on-view has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the notch a view query stores")))
+(som-notch-on-view-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-notch-on-view")))
+(som-score-due has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("a score should be taken")))
+(som-score-due-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-score-due")))
+(som-checkpoint-due has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("this level has no checkpoint yet")))
+(som-checkpoint-due-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Non-Fluent)) (text-gloss ("the rule for som-checkpoint-due")))
+
+(every Som-Goal-View has
+  (som-clock-stale ((the som-clock-stale-rule of Self)))
+  (som-exp-used ((the som-exp-used-rule of Self)))
+  (som-estimate-overwritten ((the som-estimate-overwritten-rule of Self)))
+  (som-fraction ((the som-fraction-rule of Self)))
+  (som-levels-earned ((the som-levels-earned-rule of Self)))
+  (som-current-level-as-fraction ((the som-current-level-as-fraction-rule of Self)))
+  (som-remaining-levels ((the som-remaining-levels-rule of Self)))
+  (som-remaining-minutes ((the som-remaining-minutes-rule of Self)))
+  (som-needed ((the som-needed-rule of Self)))
+  (som-actual ((the som-actual-rule of Self)))
+  (som-sample-ready ((the som-sample-ready-rule of Self)))
+  (som-pace ((the som-pace-rule of Self)))
+  (som-pace-band ((the som-pace-band-rule of Self)))
+  (som-pace-withheld ((the som-pace-withheld-rule of Self)))
+  (som-span-reading ((the som-span-reading-rule of Self)))
+  (som-met ((the som-met-rule of Self)))
+  (som-deadline-missed ((the som-deadline-missed-rule of Self)))
+  (som-notch ((the som-notch-rule of Self)))
+  (som-notch-moved ((the som-notch-moved-rule of Self)))
+  (som-cooldown-next ((the som-cooldown-next-rule of Self)))
+  (som-raised-one ((the som-raised-one-rule of Self)))
+  (som-dropped-one ((the som-dropped-one-rule of Self)))
+  (som-dropped-on-death ((the som-dropped-on-death-rule of Self)))
+  (som-notch-on-score ((the som-notch-on-score-rule of Self)))
+  (som-notch-on-view ((the som-notch-on-view-rule of Self)))
+  (som-score-due ((the som-score-due-rule of Self)))
+  (som-checkpoint-due ((the som-checkpoint-due-rule of Self)))
+
+  (som-clock-stale-rule
+    ((if (((the som-clock-kind of (the som-progress of Self))
+           /= (the som-kind of (the som-goal of Self)))
+          or
+          ((the som-clock-target of (the som-progress of Self))
+           /= (the som-target-level of (the som-goal of Self))))
+         then t)))
+
+  (som-exp-used-rule
+    ((if (has-value (the som-score-page-exp of (the som-progress of Self)))
+         then (the som-score-page-exp of (the som-progress of Self))
+         else (if (has-value (the som-exp-estimate of (the som-progress of Self)))
+                  then (the som-exp-estimate of (the som-progress of Self))
+                  else (the som-exp-to-level of (the som-progress of Self))))))
+
+  (som-estimate-overwritten-rule
+    ((if ((has-value (the som-score-page-exp of (the som-progress of Self)))
+          and
+          (has-value (the som-exp-estimate of (the som-progress of Self))))
+         then t)))
+
+  (som-fraction-rule
+    ((if ((has-value (the som-exp-span of (the som-progress of Self)))
+          and
+          ((the som-exp-span of (the som-progress of Self)) > 0))
+         then (1 - ((the som-exp-used of Self)
+                    / (the som-exp-span of (the som-progress of Self)))))))
+
+  (som-span-reading-rule
+    ((if ((has-value (the som-exp-span of (the som-progress of Self)))
+          and
+          ((the som-exp-span of (the som-progress of Self)) > 0))
+         then first-reading-counted-as-width)))
+
+  (som-levels-earned-rule
+    ((if (has-value (the som-fraction of Self))
+         then ((((the som-level of (the som-progress of Self))
+                 - (the som-start-level of (the som-progress of Self)))
+                + (the som-fraction of Self))
+               - (the som-start-fraction of (the som-progress of Self))))))
+
+  (som-current-level-as-fraction-rule
+    ((if (has-value (the som-fraction of Self))
+         then ((the som-level of (the som-progress of Self))
+               + (the som-fraction of Self)))))
+
+  (som-remaining-levels-rule
+    ((if (has-value (the som-current-level-as-fraction of Self))
+         then ((the som-target-level of (the som-goal of Self))
+               - (the som-current-level-as-fraction of Self)))))
+
+  (som-remaining-minutes-rule
+    ((if ((has-value (the som-budget-minutes of (the som-goal of Self)))
+          and
+          (has-value (the som-elapsed-minutes of (the som-progress of Self))))
+         then ((the som-budget-minutes of (the som-goal of Self))
+               - (the som-elapsed-minutes of (the som-progress of Self))))))
+
+  (som-sample-ready-rule
+    ((if (((the som-elapsed-minutes of (the som-progress of Self)) >= 2)
+          and
+          ((the som-score-count of (the som-progress of Self)) >= 2))
+         then t)))
+
+  (som-needed-rule
+    ((if ((the som-remaining-minutes of Self) > 0)
+         then ((the som-remaining-levels of Self)
+               / (the som-remaining-minutes of Self)))))
+
+  (som-actual-rule
+    ((if ((the som-elapsed-minutes of (the som-progress of Self)) > 0)
+         then ((the som-levels-earned of Self)
+               / (the som-elapsed-minutes of (the som-progress of Self))))))
+
+  (som-pace-band-rule
+    ((if ((the som-actual of Self)
+          < ((the som-needed of Self) * (4 / 5)))
+         then behind
+         else (if ((the som-actual of Self)
+                   > ((the som-needed of Self) * (6 / 5)))
+                  then ahead
+                  else on))))
+
+  (som-pace-withheld-rule
+    ((if ((not (t = t)))
+         then t)))
+
+  (som-pace-rule
+    ((if ((the som-clock-stale of Self) = t)
+         then nil
+         else (if (((not (has-value (the som-budget-minutes of (the som-goal of Self))))
+                    or
+                    ((the som-budget-minutes of (the som-goal of Self)) = 0)))
+                  then open
+                  else (if (((has-value (the som-remaining-minutes of Self))
+                             and
+                             ((the som-remaining-minutes of Self) <= 0)))
+                           then (if ((not ((the som-met of Self) = t)))
+                                    then behind
+                                    else nil)
+                           else (if ((the som-sample-ready of Self) = t)
+                                    then (the som-pace-band of Self)
+                                    else sampling))))))
+
+  (som-met-rule
+    ((if ((the som-clock-stale of Self) = t)
+         then nil
+         else (if ((the som-met-in of (the som-progress of Self)) = t)
+                  then t
+                  else (if ((the som-level of (the som-progress of Self))
+                            >= (the som-target-level of (the som-goal of Self)))
+                           then t)))))
+
+  (som-deadline-missed-rule
+    ((if ((the som-clock-stale of Self) = t)
+         then nil
+         else (if ((the som-deadline-in of (the som-progress of Self)) = t)
+                  then t
+                  else (if ((has-value (the som-budget-minutes of (the som-goal of Self)))
+                           and
+                           ((the som-budget-minutes of (the som-goal of Self)) > 0)
+                           and
+                           ((the som-remaining-minutes of Self) <= 0)
+                           and
+                           (not ((the som-met of Self) = t)))
+                          then t)))))
+
+  (som-raised-one-rule
+    ((if ((the som-prior-notch of (the som-progress of Self))
+          = (the som-risk-ceiling of (the som-goal of Self)))
+         then (the som-prior-notch of (the som-progress of Self))
+         else (if ((the som-prior-notch of (the som-progress of Self)) = cautious)
+                  then steady
+                  else (if (((the som-prior-notch of (the som-progress of Self)) = steady)
+                            and
+                            ((the som-risk-ceiling of (the som-goal of Self)) = bold))
+                           then bold
+                           else (the som-prior-notch of (the som-progress of Self)))))))
+
+  (som-dropped-one-rule
+    ((if ((the som-prior-notch of (the som-progress of Self)) = bold)
+         then steady
+         else (if ((the som-prior-notch of (the som-progress of Self)) = steady)
+                  then cautious
+                  else cautious))))
+
+  (som-dropped-on-death-rule
+    ((if ((the som-prior-notch of (the som-progress of Self)) = bold)
+         then cautious
+         else (the som-dropped-one of Self))))
+
+  (som-cooldown-next-rule
+    ((if ((the som-clock-stale of Self) = t)
+         then nil
+         else (if ((the som-event of (the som-progress of Self)) = death)
+                  then 30
+                  else (the som-cooldown-steps of (the som-progress of Self))))))
+
+  (som-notch-on-score-rule
+    ((if ((the som-deadline-missed of Self) = t)
+         then (the som-risk-ceiling of (the som-goal of Self))
+         else (if (((the som-budget-minutes of (the som-goal of Self)) = 0)
+                   and
+                   ((the som-first-score of (the som-progress of Self)) = t))
+                  then (the som-risk-ceiling of (the som-goal of Self))
+                  else (if (((the som-pace of Self) = behind)
+                            and
+                            ((the som-cooldown-steps of (the som-progress of Self)) = 0))
+                           then (the som-raised-one of Self)
+                           else (if ((the som-pace of Self) = ahead)
+                                    then (the som-dropped-one of Self)
+                                    else (the som-prior-notch of (the som-progress of Self))))))))
+
+  (som-notch-on-view-rule
+    ((if (((the som-deadline-missed of Self) = t)
+          and
+          (not ((the som-prior-notch of (the som-progress of Self))
+                = (the som-risk-ceiling of (the som-goal of Self)))))
+         then (the som-risk-ceiling of (the som-goal of Self))
+         else (the som-prior-notch of (the som-progress of Self)))))
+
+  (som-notch-rule
+    ((if ((the som-clock-stale of Self) = t)
+         then nil
+         else (if ((the som-event of (the som-progress of Self)) = death)
+                  then (the som-dropped-on-death of Self)
+                  else (if ((the som-event of (the som-progress of Self)) = score)
+                           then (the som-notch-on-score of Self)
+                           else (the som-notch-on-view of Self))))))
+
+  (som-notch-moved-rule
+    ((if ((the som-clock-stale of Self) = t)
+         then nil
+         else (if ((the som-event of (the som-progress of Self)) = death)
+                  then dropped
+                  else (if ((the som-event of (the som-progress of Self)) = score)
+                           then (if ((the som-deadline-missed of Self) = t)
+                                    then ceiling
+                                    else (if (((the som-budget-minutes of (the som-goal of Self)) = 0)
+                                              and
+                                              ((the som-first-score of (the som-progress of Self)) = t))
+                                             then ceiling
+                                             else (if (((the som-pace of Self) = behind)
+                                                       and
+                                                       ((the som-cooldown-steps of (the som-progress of Self)) = 0))
+                                                      then (if ((the som-notch of Self)
+                                                                = (the som-prior-notch of (the som-progress of Self)))
+                                                               then unchanged
+                                                               else raised)
+                                                      else (if ((the som-pace of Self) = ahead)
+                                                               then (if ((the som-notch of Self)
+                                                                         = (the som-prior-notch of (the som-progress of Self)))
+                                                                        then unchanged
+                                                                        else dropped)
+                                                               else unchanged))))
+                           else (if (((the som-deadline-missed of Self) = t)
+                                     and
+                                     (not ((the som-prior-notch of (the som-progress of Self))
+                                           = (the som-risk-ceiling of (the som-goal of Self)))))
+                                    then ceiling
+                                    else unchanged))))))
+
+  (som-score-due-rule
+    ((if ((the som-clock-stale of Self) = t)
+         then nil
+         else (if ((the som-score-count of (the som-progress of Self)) = 0)
+                  then t
+                  else (if ((the som-score-forced of (the som-progress of Self)) = t)
+                           then t
+                           else (if ((the som-score-steps of (the som-progress of Self))
+                                     >= (the som-score-every of (the som-goal of Self)))
+                                    then t))))))
+
+  (som-checkpoint-due-rule
+    ((if ((the som-clock-stale of Self) = t)
+         then nil
+         else (if ((the som-saves of (the som-progress of Self)) = 0)
+                  then t)))))

@@ -51,12 +51,13 @@ HTTP request        som.km.server   som.km.engine/evaluate     JSON answer
 | `som.km.stack` | The goal stack and the loop check. Both stacks live on the query. The interpreter pushes goals. |
 | `som.km.minimatch` | `minimatch` returns captured pieces. `full-match` returns a binding list. The handler table uses it. |
 | `som.km.repl` | The `KM>` prompt. A local situation is shown in brackets and a theory in braces. It holds one session. `q` leaves when the line reads as that symbol. A load that is not silent writes each file's line as that file is read. |
+| `som.km.startup` | Starts that prompt after loading the shipped component library and the Springs of MUD library. `startup.sh` and `startup.cmd` run it with `-J-Xmx4g`. |
 | `som.km.server` | The HTTP service. It holds one session. The handler turns a request into a map and writes the response. |
 | `som.kb` | Loads the component library from the Readme under `src/resources/km-component-library`. `load-lib` takes the caller's knowledge base and query. Each `.km` file is one `load-kb`. `:value` is the list of pathname-names. A `.lisp` file is listed on `:lisp` and left unevaluated. Children of one directory are sorted with `string<`. A library caller passes the knowledge base in. `(load-lib)` at the prompt and over HTTP calls the same function through `evaluate`, and the session keeps the returned knowledge base. |
 
-`som.kb/components-path` is the shipped `components` directory. `load-lib` walks it the way the Readme's `traverse-directory` does: a subdirectory's files are placed in front of the entries already collected, a file is placed in front, and an empty directory is visited as a file. A file named `Thing.km` is probed as the directory `Thing/`. The returned names are consed, so they come back in the reverse of that visit order. The type test is case-sensitive. A missing directory records `No such directory %s!`.
+`som.kb/components-path` is the shipped `components` directory. `som.kb/som-components-path` is `src/resources/som-component-library`. `load-lib` walks a directory the way the Readme's `traverse-directory` does: a subdirectory's files are placed in front of the entries already collected, a file is placed in front, and an empty directory is visited as a file. A file named `Thing.km` is probed as the directory `Thing/`. The returned names are consed, so they come back in the reverse of that visit order. The type test is case-sensitive. A missing directory records `No such directory %s!`.
 
-`(load-lib)` is evaluated by `som.km.engine/evaluate`, so the prompt and the HTTP service share it. No directory argument loads `components-path`. A string argument is that directory, and a quoted string is unwrapped. `:silent t` and `:silentp t` skip the per-file loading lines. `:silent f`, and a call with no silent flag, record those lines. The prompt writes each one as the file is read. The answer is the list of pathname-names. `evaluate` returns the loaded `:kb` and `:query`, and each front keeps them for the next call. HTTP keeps the lines on `:text` and writes them with the response.
+`(load-lib)` is evaluated by `som.km.engine/evaluate`, so the prompt, the startup command, and the HTTP service share it. No directory argument loads `components-path`. A string argument is that directory, and a quoted string is unwrapped. `:silent t` and `:silentp t` skip the per-file loading lines. `:silent f`, and a call with no silent flag, record those lines. The prompt writes each one as the file is read. The answer is the list of pathname-names. `evaluate` returns the loaded `:kb` and `:query`, and each front keeps them for the next call. HTTP keeps the lines on `:text` and writes them with the response.
 
 A cons cell is a record, so it answers `map?`. Code that accepts a map tests for a cons cell first. The frame store does this where it accepts a map. `som.km.engine/reset` calls `som.km.frame/reset`. A direct `reset` keeps the inference counters and the list of instances being unified. A top-level `evaluate` clears those before the expression runs.
 
@@ -121,7 +122,7 @@ Unification rewrites the caller's knowledge base. `&` and `&!` combine two value
 ## JVM library
 
 The Maven artifact `org.springy.som:som-knowledge-machine:0.1.0-SNAPSHOT`
-contains the `som.km` Clojure namespaces and the repository license. The JVM
+contains the `som.km` Clojure namespaces, the `som.kb` component loader, and the repository license. The JVM
 consumer loads `som.km.engine` through Clojure `require`. Its entry points are
 `status`, `session`, and `evaluate`. The caller owns each session and carries
 the returned `:kb` and `:query` into its next call. `som.kb/load-lib` loads

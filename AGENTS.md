@@ -14,7 +14,7 @@ Maintainable means the port follows the Lisp module boundaries, one piece at a t
 
 Follow the skill. Do not copy its steps into this file.
 
-- `align-repository` (`.grok/skills/align-repository/SKILL.md`, `/align-repository`). Use it when asked to align one of its target repositories, or to report the changes that would match that repository's standards. It writes the alignment report and leaves the code unchanged.
+- `align-repository` (`../som-nlp-service/.codex/skills/align-repository/SKILL.md`, `/align-repository`). Use it when asked to align `som-knowledge-machine` or report changes that would match this repository's standards. It writes an alignment report and leaves code unchanged. This shared skill requires the sibling `som-nlp-service` checkout.
 - `clojure-code-review` (`.grok/skills/clojure-code-review/SKILL.md`, `/clojure-code-review`). Use it when asked to review Clojure against the Coding Conventions, or to report where the code breaks those conventions. It writes the report and leaves the code unchanged.
 - `clj-kondo` (`.grok/skills/clj-kondo/SKILL.md`, `/clj-kondo`). Use it when asked to lint this repository. It writes the report and leaves the code unchanged.
 

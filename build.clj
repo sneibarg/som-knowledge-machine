@@ -20,8 +20,8 @@
         artifact {:lib lib :version version :basis basis
                   :class-dir class-dir :jar-file jar-file}]
     (b/delete {:path class-dir})
-    (b/copy-dir {:src-dirs ["src/som/km"]
-                 :target-dir (str class-dir "/som/km")
+    (b/copy-dir {:src-dirs ["src/som"]
+                 :target-dir (str class-dir "/som")
                  :include "{*.clj,**/*.clj}"})
     (b/copy-file {:src "LICENSE"
                   :target (str class-dir "/META-INF/som-knowledge-machine/LICENSE")})

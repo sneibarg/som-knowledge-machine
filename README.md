@@ -58,6 +58,16 @@ clojure -M:repl
 
 The prompt is `KM>`. A line is read and evaluated. `q` leaves the prompt. An unfinished expression continues on the next line.
 
+`startup.sh` and `startup.cmd` start that prompt with a 4GB heap and load both component libraries before the first `KM>` line. The shipped library takes several minutes. Some of its files record an error, and the load continues.
+
+```
+sh ./startup.sh
+```
+
+```
+startup.cmd
+```
+
 ## HTTP service
 
 ```
@@ -123,6 +133,10 @@ Pass the returned `:kb` and `:query` into the next call. The same call loads one
 `:value` is the list of `.km` pathname-names, the file name with the directory and the `.km` suffix removed. `:lisp` lists the `.lisp` paths in the tree. Those files are Common Lisp, and this port leaves them unread. The prompt and HTTP answers include `:value` and leave `:lisp` off the printed result. `.kml` files and every other file type are skipped. The type test is case-sensitive.
 
 Each `.km` file is loaded with `load-kb`, which resets the inference engine at the start of that file. A subdirectory's files are placed in front of the entries already collected. Children of one directory are ordered with `string<`, upper case before lower case. The shipped library holds thousands of `.km` files. A form this port refuses follows the query's `:on-error`. The default records the error on `:errors` and continues with the rest of the library. A file the reader cannot finish records `Loading of ... aborted!` and the loader goes on to the next file. A missing directory records `No such directory` and `:value` is nil.
+
+## Springs of MUD component library
+
+Goal-oriented play for Springs of MUD lives in `src/resources/som-component-library`. `(load-lib)` with no argument still reads the shipped library above. Load and query instructions are in that directory's [README](src/resources/som-component-library/README.md).
 
 ## License
 

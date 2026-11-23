@@ -56,6 +56,31 @@
     (with-slash dir)
     "./components/"))
 
+(defn- som-components
+  "The Springs of MUD component directory beside this source file.
+
+  *file* is bound while the namespace loads. A file URL on the
+  classpath is the next place. A jar URL has no directory to list."
+  []
+  (or (when (some? *file*)
+        (let [dir (io/file (.getParentFile (.getParentFile (io/file *file*)))
+                           "resources"
+                           "som-component-library")]
+          (when (.isDirectory dir) dir)))
+      (when-let [url (io/resource "resources/som-component-library/README.md")]
+        (when (= "file" (.getProtocol url))
+          (.getParentFile (io/as-file url))))))
+
+(def som-components-path
+  "The Springs of MUD component directory shipped with this build.
+
+  This is src/resources/som-component-library, with a trailing
+  separator, captured when this namespace loads. The relative path is
+  kept when the tree is not visible."
+  (if-let [dir (som-components)]
+    (with-slash dir)
+    "src/resources/som-component-library/"))
+
 (defn- pathname-parts
   "pathname-name and pathname-type.
 

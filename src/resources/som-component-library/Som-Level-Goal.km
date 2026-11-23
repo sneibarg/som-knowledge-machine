@@ -1,0 +1,60 @@
+;; Som-Level-Goal.km
+;; A level asked of the agentic player. Not core Goal, which is a dummy Event.
+
+(Som-Level-Goal has
+  (superclasses (Thing)))
+
+(som-kind-in has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the kind as asserted")))
+
+(som-kind has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the goal kind")))
+
+(som-target-level has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the level asked for")))
+
+(som-risk-ceiling has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the highest notch pace may reach")))
+
+(som-budget-minutes has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the minute budget, or zero when play is open-ended")))
+
+(som-score-every-in has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the cadence as asserted")))
+
+(som-score-every has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Non-Fluent))
+  (text-gloss ("the steps between scores")))
+
+(every Som-Level-Goal has
+  (som-kind ((if (has-value (the som-kind-in of Self))
+                 then (the som-kind-in of Self)
+                 else level)))
+  (som-score-every ((if (has-value (the som-score-every-in of Self))
+                        then (the som-score-every-in of Self)
+                        else 15)))
+  (text-gen ((make-sentence
+              (:seq "The level goal is level"
+                    (the som-target-level of Self)
+                    "at"
+                    (the som-risk-ceiling of Self))))))
