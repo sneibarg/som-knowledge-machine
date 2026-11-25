@@ -7,12 +7,12 @@
   (range (Som-Progress-Projection))
   (inverse (som-progress-of))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (original-slot (t)))
 
 (som-progress has (text-gloss ("is drawn from")))
 
 (som-progress-of has
   (instance-of (Slot))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("is the progress of")))

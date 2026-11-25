@@ -7,12 +7,12 @@
   (range (Som-Mobile-Reading))
   (inverse (som-reading-of))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (original-slot (t)))
 
 (som-reading has (text-gloss ("includes the reading")))
 
 (som-reading-of has
   (instance-of (Slot))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("is a reading on")))

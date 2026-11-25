@@ -7,12 +7,12 @@
   (range (Som-Level-Goal))
   (inverse (som-goal-of))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (original-slot (t)))
 
 (som-goal has (text-gloss ("is judged against")))
 
 (som-goal-of has
   (instance-of (Slot))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("is the goal of")))

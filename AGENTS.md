@@ -17,6 +17,7 @@ Follow the skill. Do not copy its steps into this file.
 - `align-repository` (`../som-nlp-service/.codex/skills/align-repository/SKILL.md`, `/align-repository`). Use it when asked to align `som-knowledge-machine` or report changes that would match this repository's standards. It writes an alignment report and leaves code unchanged. This shared skill requires the sibling `som-nlp-service` checkout.
 - `clojure-code-review` (`.grok/skills/clojure-code-review/SKILL.md`, `/clojure-code-review`). Use it when asked to review Clojure against the Coding Conventions, or to report where the code breaks those conventions. It writes the report and leaves the code unchanged.
 - `clj-kondo` (`.grok/skills/clj-kondo/SKILL.md`, `/clj-kondo`). Use it when asked to lint this repository. It writes the report and leaves the code unchanged.
+- `km-knowledge-representation` (`.grok/skills/km-knowledge-representation/SKILL.md`, `/km-knowledge-representation`). Use it when asked to build, author, or extend a Knowledge Machine ontology or component. The same text is in `.codex/skills/km-knowledge-representation/SKILL.md`.
 
 ## Reference
 

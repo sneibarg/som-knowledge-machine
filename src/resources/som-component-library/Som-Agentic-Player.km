@@ -1,0 +1,6 @@
+;; Som-Agentic-Player.km
+;; One agentic player. This situation partitions that player's assertions
+;; and the answers computed from them.
+
+(Som-Agentic-Player has
+  (superclasses (Situation)))

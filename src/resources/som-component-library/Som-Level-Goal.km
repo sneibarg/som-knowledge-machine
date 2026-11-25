@@ -7,43 +7,43 @@
 (som-kind-in has
   (instance-of (Slot))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("the kind as asserted")))
 
 (som-kind has
   (instance-of (Slot))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("the goal kind")))
 
 (som-target-level has
   (instance-of (Slot))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("the level asked for")))
 
 (som-risk-ceiling has
   (instance-of (Slot))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("the highest notch pace may reach")))
 
 (som-budget-minutes has
   (instance-of (Slot))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("the minute budget, or zero when play is open-ended")))
 
 (som-score-every-in has
   (instance-of (Slot))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("the cadence as asserted")))
 
 (som-score-every has
   (instance-of (Slot))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("the steps between scores")))
 
 (every Som-Level-Goal has

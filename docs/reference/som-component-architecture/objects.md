@@ -2,11 +2,11 @@
 
 Every frame the Springs of MUD component library declares. The directory is `src/resources/som-component-library`. How to load it and how to ask one question are in the [library README](../../../src/resources/som-component-library/README.md). Pace, the notch, and the hunt are also summarized in [Reasoning](reasoning.md). This note names each frame, who writes it, and what a read returns.
 
-The library declares 5 classes and 122 slots.
+The library declares 6 classes and 122 slots.
 
-`Thing`, `Slot`, `N-to-1`, `*Non-Fluent`, and `text-gen` are built in. They are named here only where a class rule stores a value on `text-gen`.
+`Thing`, `Slot`, `N-to-1`, `*Fluent`, `Situation`, and `text-gen` are built in. They are named here only where a class rule stores a value on `text-gen`.
 
-Each slot this library declares is an instance of `Slot`, cardinality `N-to-1`, fluent status `*Non-Fluent`, with one `text-gloss`. A forward relation also has domain `Thing`, a range, an inverse, and `original-slot` `t`. An inverse declares `instance-of`, `fluent-status`, and `text-gloss`. A second `(every Som-Goal-View has ...)` appends slots. `Som-Goal-View.km` writes the fraction, pace, and notch conclusions. `Som-Level-Directive.km` writes the hunt conclusions onto the same class.
+Each slot this library declares is an instance of `Slot`, cardinality `N-to-1`, fluent status `*Fluent`, with one `text-gloss`. A forward relation also has domain `Thing`, a range, an inverse, and `original-slot` `t`. An inverse declares `instance-of`, `fluent-status`, and `text-gloss`. A second `(every Som-Goal-View has ...)` appends slots. `Som-Goal-View.km` writes the fraction, pace, and notch conclusions. `Som-Level-Directive.km` writes the hunt conclusions onto the same class.
 
 A conclusion slot's class value is `(the <slot>-rule of Self)`. The paired `*-rule` slot holds the expression. Reading either slot runs that expression and returns the same answer. The caller asserts neither. The gloss on every `*-rule` slot is `the rule for <slot>`.
 
@@ -14,10 +14,11 @@ One query is one score, one death, or one view. The caller asserts the goal, the
 
 ## Classes
 
-Each class stores `(superclasses (Thing))`.
+`Som-Level-Goal`, `Som-Progress-Projection`, `Som-Mobile-Reading`, `Som-Goal-View`, and `Som-Level-Directive` store `(superclasses (Thing))`. `Som-Agentic-Player` stores `(superclasses (Situation))`.
 
 | Class | File | What it is |
 | --- | --- | --- |
+| `Som-Agentic-Player` | `Som-Agentic-Player.km` | One agentic player's situation. Fluent values asserted or computed there stay there. |
 | `Som-Level-Goal` | `Som-Level-Goal.km` | The level asked for, the risk ceiling, the minute budget, and the score cadence. |
 | `Som-Progress-Projection` | `Som-Progress-Projection.km` | The clock and the room, copied in for this event. No rule writes these slots. |
 | `Som-Mobile-Reading` | `Som-Mobile-Reading.km` | One mobile on the projection's reading sequence. The sequence stays in caller order. |

@@ -7,12 +7,12 @@
   (range (Som-Level-Directive))
   (inverse (som-licensed-directive-of))
   (cardinality (N-to-1))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (original-slot (t)))
 
 (som-licensed-directive has (text-gloss ("is licensed as")))
 
 (som-licensed-directive-of has
   (instance-of (Slot))
-  (fluent-status (*Non-Fluent))
+  (fluent-status (*Fluent))
   (text-gloss ("is the directive of")))

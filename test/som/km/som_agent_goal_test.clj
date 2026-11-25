@@ -40,7 +40,7 @@
   (frame-has frame (remove (fn [[_ value]] (nil? value)) slot-map)))
 
 (defn- project-from
-  [start goal clock extras]
+  [start goal clock extras & {:keys [situation]}]
   (let [clock (merge {"som-clock-kind" (get goal "som-kind-in" "level")
                       "som-clock-target" (get goal "som-target-level")}
                      clock)
@@ -49,7 +49,10 @@
                       extras
                       ["(*View has (instance-of (Som-Goal-View))
                                  (som-goal (*Goal))
-                                 (som-progress (*Clock)))"])]
+                                 (som-progress (*Clock)))"])
+        steps (if situation
+                (map #(str "(in-situation " situation " " % ")") steps)
+                steps)]
     (reduce on start steps)))
 
 (defn- project
@@ -143,14 +146,18 @@
   [state]
   (value-nil (q state "som-licensed-directive")))
 
-(deftest som-agent-loads-nine-components-and-leaves-the-core-files-out
+(deftest som-agent-loads-the-component-library
   (is (empty? (:errors loaded)) (pr-str (:errors loaded)))
   (is (= [] (:lisp loaded)))
-  (is (= #{"Som-Goal-View" "Som-Level-Directive" "Som-Level-Goal"
-           "Som-Mobile-Reading" "Som-Progress-Projection"
+  (is (= #{"Som-Agentic-Player" "Som-Goal-View" "Som-Level-Directive"
+           "Som-Level-Goal" "Som-Mobile-Reading" "Som-Progress-Projection"
            "som-goal" "som-licensed-directive" "som-progress" "som-reading"}
          (set (utils/elements (:value loaded)))))
+  (value-is (on loaded "(the superclasses of Som-Agentic-Player)") "(Situation)")
   (value-is (on loaded "(the superclasses of Som-Level-Goal)") "(Thing)")
+  (value-is (on loaded "(the fluent-status of som-target-level)") "(*Fluent)")
+  (value-is (on loaded "(the fluent-status of som-goal-of)") "(*Fluent)")
+  (value-is (on loaded "(the fluent-status of som-pace)") "(*Fluent)")
   (value-is (on loaded "(the inverse of som-progress)") "(som-progress-of)")
   (value-is (on loaded "(the inverse of som-goal)") "(som-goal-of)")
   (value-is (on loaded "(the inverse of som-reading)") "(som-reading-of)")
@@ -165,11 +172,29 @@
     (is (empty? (:errors created)))
     (value-is classes "(Som-Level-Goal)")))
 
+(deftest one-situation-per-agentic-player-keeps-its-own-answers
+  (let [named (reduce on loaded
+                      ["(*PlayerA has (instance-of (Som-Agentic-Player)))"
+                       "(*PlayerB has (instance-of (Som-Agentic-Player)))"])
+        both (-> named
+                 (project-from budgeted behind-clock nil :situation "*PlayerA")
+                 (project-from (assoc budgeted "som-target-level" "9"
+                                      "som-budget-minutes" "0")
+                               (merge behind-clock {"som-event" "score"})
+                               nil
+                               :situation "*PlayerB"))
+        ask (fn [player frame slot]
+              (on both (str "(in-situation " player " (the " slot " of " frame "))")))]
+    (value-is (ask "*PlayerA" "*Goal" "som-target-level") "(5)")
+    (value-is (ask "*PlayerB" "*Goal" "som-target-level") "(9)")
+    (value-is (ask "*PlayerA" "*View" "som-pace") "(behind)")
+    (value-is (ask "*PlayerB" "*View" "som-pace") "(open)")))
+
 (deftest the-component-text-does-not-use-refused-forms
   (let [files (->> (io/file agent-dir)
                    file-seq
                    (filter #(and (.isFile %) (str/ends-with? (.getName %) ".km"))))]
-    (is (= 9 (count files)))
+    (is (= 10 (count files)))
     (doseq [file files
             :let [text (slurp file)]]
       (is (not (str/includes? text "anonymous-instancep")) (.getName file))

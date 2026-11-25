@@ -1,10 +1,12 @@
 # Vocabulary
 
-Five classes subclass `Thing`. Four relations are `N-to-1` slots whose inverse is declared beside them. Conclusion slots on `Som-Goal-View` are also `N-to-1` and `*Non-Fluent`. A conclusion is written in one `(every ... has ...)` so two files do not store two values on the same slot.
+Five classes subclass `Thing`. `Som-Agentic-Player` subclasses `Situation`. Four relations are `N-to-1` slots whose inverse is declared beside them. The slots this library declares are `*Fluent`. A conclusion is written in one `(every ... has ...)` so two files do not store two values on the same slot.
 
 This note is the caller-facing list. Every declared frame, including the helper conclusions and every `*-rule` slot, is in [Objects](objects.md).
 
 ## Classes
+
+`Som-Agentic-Player` is one agentic player's situation. Assertions and query results for that player stay in it.
 
 `Som-Level-Goal` is the goal the view is judged against.
 

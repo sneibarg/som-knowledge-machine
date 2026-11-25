@@ -6,10 +6,11 @@ This directory is a Knowledge Machine component library for Springs of MUD. It a
 
 ## What was added
 
-Nine `.km` files. Five classes subclass `Thing`. Four relations connect a view to its goal, its progress, its mobile readings, and the directive it licenses. The shipped `Goal` class stays an `Event`. These classes do not subclass it, and they do not reuse `has-goal`, `objective`, `agent`, `Action`, or `Planning`.
+Ten `.km` files. Five classes subclass `Thing`. `Som-Agentic-Player` subclasses `Situation`, one situation for each agentic player. Four relations connect a view to its goal, its progress, its mobile readings, and the directive it licenses. The shipped `Goal` class stays an `Event`. These classes do not subclass it, and they do not reuse `has-goal`, `objective`, `agent`, `Action`, or `Planning`.
 
 | File | What it declares |
 | --- | --- |
+| `Som-Agentic-Player.km` | One agentic player's situation. Assertions and query results for that player stay in it. |
 | `Som-Level-Goal.km` | The goal. Kind defaults to `level`. The score cadence defaults to `15`. |
 | `Som-Progress-Projection.km` | Facts the caller copies in for one event: level, experience, minutes, notch, combat, exits. |
 | `Som-Goal-View.km` | The view that computes fraction, pace, notch, score due, and checkpoint due. |
@@ -36,7 +37,7 @@ clojure -M:repl
 KM> (load-lib "src/resources/som-component-library" :silent t)
 ```
 
-`:silentp t` is the same flag. The answer is the list of nine pathname-names. `:errors` is empty when the directory loads.
+`:silentp t` is the same flag. The answer is the list of ten pathname-names. `:errors` is empty when the directory loads.
 
 `startup.sh` and `startup.cmd`, from the repository root, start the prompt and load the shipped library and then this directory. The shipped library takes several minutes.
 
@@ -104,6 +105,30 @@ KM> (the som-attempts of (the som-licensed-directive of *View))
 Pace is one of `sampling`, `behind`, `on`, `ahead`, or `open`. The notch is `cautious`, `steady`, or `bold`. A licensed directive has `som-allow-social` `no`, a role, and attempts. Each attempt is `(:args role category preference argument)`. Several attempts are one `:seq`. A hold is `(:seq)`. Rules 1 and 14, and a stale clock, license no directive.
 
 The caller stores whatever the next event must see: the notch, `som-cooldown-next`, the score counters, and the saves. The next event is a new projection and a new view. Start that question from the knowledge base that loaded the library, so one clock is not still present when the next question runs.
+
+## One situation per agentic player
+
+Each agentic player is a `Som-Agentic-Player`. The slots this library declares are `*Fluent`. A value asserted in a player's situation is stored there, and a query run there keeps its answer there. A second player's situation has its own values. The class rules stay in `*Global` and are visible from the player's situation.
+
+```
+(*PlayerA has (instance-of (Som-Agentic-Player)))
+
+(in-situation *PlayerA
+  (*Goal has (instance-of (Som-Level-Goal))
+             (som-target-level (5))
+             (som-risk-ceiling (bold))
+             (som-budget-minutes (10))))
+```
+
+Assert the projection and the view the same way, inside that situation. Read the answer there:
+
+```
+(in-situation *PlayerA (the som-pace of *View))
+```
+
+A second player is a second `Som-Agentic-Player`. The names `*Goal`, `*Clock`, and `*View` can be used again. Their values stay in the situation where they were asserted.
+
+Until a situation is entered, a query in `*Global` reads the values stored there. Once a situation has been entered, read a fluent from inside that situation.
 
 Closed words such as `behind`, `on`, `open`, `cautious`, `steady`, and `bold` are ordinary symbols. Comparisons against an empty slot use `=` or `has-value`. A `<` or `>` on an empty slot records an error.
 
