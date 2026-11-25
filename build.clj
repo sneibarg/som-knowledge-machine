@@ -23,6 +23,8 @@
     (b/copy-dir {:src-dirs ["src/som"]
                  :target-dir (str class-dir "/som")
                  :include "{*.clj,**/*.clj}"})
+    (b/copy-dir {:src-dirs ["src/resources"]
+                 :target-dir (str class-dir "/resources")})
     (b/copy-file {:src "LICENSE"
                   :target (str class-dir "/META-INF/som-knowledge-machine/LICENSE")})
     (b/write-pom (assoc artifact :src-pom :none :src-dirs ["src"]
