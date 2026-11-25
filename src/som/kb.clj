@@ -16,6 +16,7 @@
             [som.km.errors :as errors]
             [som.km.loadkb :as loadkb]
             [som.km.print :as print]
+            [som.km.resource-library :as resource-library]
             [som.km.term :as term]
             [som.km.utils :as utils]))
 
@@ -32,7 +33,7 @@
   "The components directory beside this source file, when it is visible.
 
   *file* is bound while the namespace loads. A file URL on the
-  classpath is the next place. A jar URL has no directory to list."
+  classpath is the next place. Packaged libraries use the resource index."
   []
   (or (when (some? *file*)
         (let [dir (io/file (.getParentFile (.getParentFile (io/file *file*)))
@@ -51,16 +52,19 @@
 
   The Lisp load-lib defaults to ./components/. This is that directory
   in the source tree, with a trailing separator, captured when this
-  namespace loads. The Lisp default is kept when the tree is not visible."
+  namespace loads. A packaged build uses a classpath path. The Lisp
+  default is kept when neither source nor packaged resources are visible."
   (if-let [dir (shipped-components)]
     (with-slash dir)
-    "./components/"))
+    (if (io/resource "resources/km-component-library/rkf-clib/components/Readme.txt")
+      "classpath:resources/km-component-library/rkf-clib/components/"
+      "./components/")))
 
 (defn- som-components
   "The Springs of MUD component directory beside this source file.
 
   *file* is bound while the namespace loads. A file URL on the
-  classpath is the next place. A jar URL has no directory to list."
+  classpath is the next place. Packaged libraries use the resource index."
   []
   (or (when (some? *file*)
         (let [dir (io/file (.getParentFile (.getParentFile (io/file *file*)))
@@ -75,11 +79,13 @@
   "The Springs of MUD component directory shipped with this build.
 
   This is src/resources/som-component-library, with a trailing
-  separator, captured when this namespace loads. The relative path is
-  kept when the tree is not visible."
+  separator, captured when this namespace loads. A packaged build uses
+  a classpath path. The relative path is kept when resources are absent."
   (if-let [dir (som-components)]
     (with-slash dir)
-    "src/resources/som-component-library/"))
+    (if (io/resource "resources/som-component-library/README.md")
+      "classpath:resources/som-component-library/"
+      "src/resources/som-component-library/")))
 
 (defn- pathname-parts
   "pathname-name and pathname-type.
@@ -110,6 +116,19 @@
    :name (:name parts)
    :type (:type parts)})
 
+(defn- traverse-resource-directory
+  [{:keys [path directories] :as directory}]
+  (reduce
+   (fn [result name]
+     (let [parts (pathname-parts name)
+           probe (str path "/" (:name parts))]
+       (if (seq (get directories probe))
+         (into (traverse-resource-directory (assoc directory :path probe)) result)
+         (into [{:path (str "classpath:" path "/" name)
+                 :name (:name parts) :type (:type parts)}] result))))
+   []
+   (sort compare (get directories path))))
+
 (defn traverse-directory
   "The files load-lib visits, in the order it visits them.
 
@@ -121,23 +140,27 @@
   Children of one directory are sorted with string<, upper case before
   lower case, because Allegro's directory has no one order. An empty
   directory is visited as a file. Each item is {:path :name :type}.
-  :type is nil when the name has no type. A missing root is empty."
+  :type is nil when the name has no type. A missing root is empty.
+  Packaged resource paths use the same walk over the JAR resource index."
   [root]
-  (let [^java.io.File dir (io/file root)
-        names (vec (sort compare (or (seq (.list dir)) [])))
-        total (count names)]
-    (loop [index 0
-           result []]
-      (if (= index total)
-        result
-        (let [name (nth names index)
-              parts (pathname-parts name)
-              ;; pathname-name only: Thing.km probes the directory Thing/.
-              probe (io/file dir (:name parts))]
-          (recur (inc index)
-                 (if (listed-directory? probe)
-                   (into (traverse-directory probe) result)
-                   (into [(entry (io/file dir name) parts)] result))))))))
+  (if-let [resource (when-not (.isDirectory (io/file root))
+                      (resource-library/directory root))]
+    (traverse-resource-directory resource)
+    (let [^java.io.File dir (io/file root)
+          names (vec (sort compare (or (seq (.list dir)) [])))
+          total (count names)]
+      (loop [index 0
+             result []]
+        (if (= index total)
+          result
+          (let [name (nth names index)
+                parts (pathname-parts name)
+                ;; pathname-name only: Thing.km probes the directory Thing/.
+                probe (io/file dir (:name parts))]
+            (recur (inc index)
+                   (if (listed-directory? probe)
+                     (into (traverse-directory probe) result)
+                     (into [(entry (io/file dir name) parts)] result)))))))))
 
 (defn- km-int
   "The interpreter function, resolved when a file is loaded.
@@ -151,7 +174,7 @@
 
 (defn- load-component
   [state path options]
-  (loadkb/load-file state path (km-int options)
+  (loadkb/load-file state (resource-library/source path) (km-int options)
                     :verbose (:verbose options)
                     :with-morphism (:with-morphism options)
                     :eval-instances (:eval-instances options)
@@ -167,7 +190,7 @@
   [state comp-path options]
   (let [^java.io.File dir (io/file comp-path)
         options (or options {})]
-    (if-not (.isDirectory dir)
+    (if-not (or (.isDirectory dir) (resource-library/directory comp-path))
       (assoc (errors/report-error state :user-error "No such directory %s!"
                                   (slash (.getAbsolutePath dir)))
              :value nil
@@ -214,6 +237,10 @@
   unevaluated. A .kml file, a fasl, and any other type are skipped.
   The type test is case-sensitive. A missing comp-path records
   \"No such directory %s!\" and :value is nil.
+
+  A path under src/resources falls back to the packaged resource index
+  when the directory is absent. classpath:resources/... explicitly loads
+  a packaged library. Resource streams use the JVM context classloader.
 
   Keyword arguments are the load-kb options :silent, :verbose,
   :with-morphism, :eval-instances, :load-patterns, and

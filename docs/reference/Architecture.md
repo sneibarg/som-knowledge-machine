@@ -126,6 +126,20 @@ Unification rewrites the caller's knowledge base. `&` and `&!` combine two value
 
 ## JVM library
 
+The JAR build writes a directory index at
+`META-INF/som-knowledge-machine/resources.edn`. `som.km.resource-library`
+uses this index to list packaged component directories. `som.kb` preserves the
+filesystem walk's order over those entries and passes classloader resource URLs
+to `som.km.loadkb/load-file`. The loader retains UTF-8 decoding with the existing
+ISO-8859-1 fallback. Resource streams are closed after reading. This works with
+Spring Boot's context classloader and nested JAR URLs.
+
+Filesystem directories take precedence. When a directory under `src/resources/`
+is absent, `load-lib` resolves it from the resource index. Explicit
+`classpath:resources/...` paths select packaged libraries. The default paths
+select classpath libraries when the source tree is absent. Configuration entries
+and caller-owned session state pass through the same engine entry point.
+
 The Maven artifact `org.springy.som:som-knowledge-machine:0.1.0-SNAPSHOT`
 contains the `som.km` Clojure namespaces, the `som.kb` component loader, and the repository license. The JVM
 consumer loads `som.km.engine` through Clojure `require`. Its entry points are

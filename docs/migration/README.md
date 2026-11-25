@@ -33,6 +33,7 @@ The original source is one concatenated Lisp file, `src/knowledge-machine/km-2-5
 | 24 | [The same file](24-the-same-file.md) | `(a-prototoype Class)` is the empty prototype. `(taxonomy)` prints in symbol-name order and checks partitions. Each save group and the comments section sort case-insensitively. `load-kb` resets once at the start, and a not-ported form inside the file follows `:on-error`. |
 | 25 | [The remaining commands](25-the-remaining-commands.md) | `showme`, `showme-all`, and `evaluate-all` print. `is-true`, `all-true`, `some-true`, `do-script`, `in-every-situation`, `thelast`, `exists`, `has-value`, `print`, and `format` run. A save of `(in-every-situation ...)` loads. `nowexists` is not a command. |
 | 26 | [The small texts](26-the-small-texts.md) | A number below 1 uses the Lisp exponent width. The extra statistics parenthesis stays. `(version)` prints the banner and answers `(t)`. |
+| 27 | [Packaged component libraries](27-packaged-component-libraries.md) | `load-lib` reads indexed classpath resources, including libraries nested inside a Spring Boot JAR. |
 
 ## Still ahead
 

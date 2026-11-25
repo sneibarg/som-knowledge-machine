@@ -353,9 +353,10 @@
   UTF-8 is used when the bytes are valid UTF-8. Otherwise the bytes are
   read as ISO-8859-1. Nil means the file is not there."
   [path]
-  (let [file (io/file path)]
-    (when (.isFile file)
-      (let [bytes (java.nio.file.Files/readAllBytes (.toPath file))
+  (let [file (when-not (instance? java.net.URL path) (io/file path))]
+    (when (or (instance? java.net.URL path) (.isFile file))
+      (let [bytes (with-open [stream (io/input-stream path)]
+                    (.readAllBytes stream))
             decoder (-> (Charset/forName "UTF-8")
                         .newDecoder
                         (.onMalformedInput CodingErrorAction/REPORT)
@@ -851,7 +852,7 @@
                                  :spot-runtime now)))))))
 
 (defn load-file
-  "Evaluate the expressions in file.
+  "Evaluate the expressions in a file or a classpath resource URL.
 
   with-morphism renames symbols before each expression is evaluated.
   The inference engine is reset after the loading line and before the

@@ -124,7 +124,7 @@ A program that calls the loader from Clojure starts with `clojure` and passes th
          '[som.km.engine :as engine])
 
 (def session (engine/session))
-(def loaded (kb/load-lib (:kb session) (:query session) :silent true))
+(def loaded (kb/load-lib (:kb session) (:query session) kb/components-path :silent true))
 ```
 
 Pass the returned `:kb` and `:query` into the next call. The same call loads one part of the library:
@@ -139,6 +139,29 @@ Pass the returned `:kb` and `:query` into the next call. The same call loads one
 `:value` is the list of `.km` pathname-names, the file name with the directory and the `.km` suffix removed. `:lisp` lists the `.lisp` paths in the tree. Those files are Common Lisp, and this port leaves them unread. The prompt and HTTP answers include `:value` and leave `:lisp` off the printed result. `.kml` files and every other file type are skipped. The type test is case-sensitive.
 
 Each `.km` file is loaded with `load-kb`, which resets the inference engine at the start of that file. A subdirectory's files are placed in front of the entries already collected. Children of one directory are ordered with `string<`, upper case before lower case. The shipped library holds thousands of `.km` files. A form this port refuses follows the query's `:on-error`. The default records the error on `:errors` and continues with the rest of the library. A file the reader cannot finish records `Loading of ... aborted!` and the loader goes on to the next file. A missing directory records `No such directory` and `:value` is nil.
+
+### Loading libraries from an imported JAR
+
+The JAR includes its configuration, component libraries, and a resource index.
+`load-lib` reads packaged files through the thread context classloader, including
+when the library is inside a Spring Boot executable JAR. An existing filesystem
+directory is loaded directly. A missing `src/resources/...` directory is resolved
+against the packaged resources, so the shipped `config.edn` works outside the
+checkout. Use `classpath:resources/...` to select packaged resources explicitly.
+
+For example, a JVM caller can load the Springs of MUD library into its own session.
+
+```clojure
+(require '[som.km.engine :as engine])
+(def loaded
+  (engine/evaluate
+    "(load-lib \"src/resources/som-component-library\" :silent t)"
+    (engine/session)))
+```
+
+Pass the returned `:kb` and `:query` into subsequent calls to `evaluate`.
+The same expression works at `KM>` and through HTTP. With no directory argument,
+`load-lib` uses the shipped KM library in either the checkout or the JAR.
 
 ## Springs of MUD component library
 

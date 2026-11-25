@@ -1,5 +1,6 @@
 (ns build
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.tools.build.api :as b]))
 
 (def ^:private lib 'org.springy.som/som-knowledge-machine)
@@ -10,6 +11,20 @@
     (when-not (re-matches #"[a-zA-Z0-9._-]+" version)
       (throw (ex-info "VERSION must contain a single Maven version." {})))
     version))
+
+(defn- write-resource-index []
+  (let [root (io/file (b/resolve-path (str class-dir "/resources")))
+        paths (->> (file-seq root)
+                   rest
+                   (map (fn [file]
+                          (str "resources/"
+                               (str/replace (str (.relativize (.toPath root) (.toPath file)))
+                                            "\\" "/")
+                               (when (.isDirectory file) "/"))))
+                   sort
+                   vec)]
+    (b/write-file {:path (str class-dir "/META-INF/som-knowledge-machine/resources.edn")
+                   :string (pr-str paths)})))
 
 (defn jar
   "Build the thin Maven library and return the inputs needed to install it."
@@ -25,6 +40,7 @@
                  :include "{*.clj,**/*.clj}"})
     (b/copy-dir {:src-dirs ["src/resources"]
                  :target-dir (str class-dir "/resources")})
+    (write-resource-index)
     (b/copy-file {:src "LICENSE"
                   :target (str class-dir "/META-INF/som-knowledge-machine/LICENSE")})
     (b/write-pom (assoc artifact :src-pom :none :src-dirs ["src"]
