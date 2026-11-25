@@ -1,6 +1,8 @@
 (ns som.km.interpreter-test
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [som.kb :as kb]
             [som.km.engine :as engine]
             [som.km.frame :as frame]
             [som.km.read :as read]
@@ -160,17 +162,65 @@
     (is (not (str/includes? (:text empty) "Fred")))
     (is (some #(re-find #"No values found" %) (:errors next))))
   (is (= "not-ported" (:error (answer "(eval (1 + 2))"))))
+  (is (= "not-ported" (:error (answer "(EVAL (1 + 2))"))))
   (is (re-find #"setq is not evaluated" (:message (answer "(setq x 1)"))))
   (is (re-find #"function is not evaluated" (:message (answer "(function foo)"))))
   (let [traced (answer "(trace)")]
     (is (= (term "(t)") (:value traced)))
     (is (str/includes? (:text traced) "(Tracing of KM switched on)")))
-  (is (re-find #"Embedded Lisp is refused" (:message (answer "(Trace)"))))
+  (let [mixed (answer "(Trace)")]
+    (is (:ok mixed))
+    (is (nil? (:error mixed)))
+    (is (empty? (:errors mixed)))
+    (is (= (term "(Trace)") (:value mixed)))
+    (is (not (str/includes? (str (:text mixed)) "Tracing of KM switched on"))))
   (let [missing (answer "(load-kb \"x\")")]
     (is (:ok missing))
     (is (nil? (:value missing)))
     (is (some #(re-find #"No such file" %) (:errors missing))))
   (is (re-find #"fastsave stays unported" (:message (answer "(fastsave-kb \"x\")")))))
+
+(deftest a-mixed-case-version-name-is-a-frame
+  (let [declared (answer "(Version has (superclasses (KM-Class)) (description (\"Tue Oct 12 16:54:46 CDT 2010\")))")
+        classes (on declared "(the superclasses of Version)")
+        description (on declared "(the description of Version)")]
+    (is (:ok declared))
+    (is (nil? (:error declared)))
+    (is (empty? (:errors declared)))
+    (is (= (term "(KM-Class)") (:value classes)))
+    (is (= (term "(\"Tue Oct 12 16:54:46 CDT 2010\")") (:value description)))))
+
+(deftest a-version-file-loads-through-both-entry-points
+  (let [dir (.toFile (java.nio.file.Files/createTempDirectory
+                      "km-version-"
+                      (into-array java.nio.file.attribute.FileAttribute [])))]
+    (try
+      (spit (io/file dir "Version.km")
+            "(Version has (superclasses (KM-Class)) (description (\"Tue Oct 12 16:54:46 CDT 2010\")))\n"
+            :encoding "UTF-8")
+      (let [path (str/replace (str dir) "\\" "/")
+            base (engine/session)
+            direct (kb/load-lib (:kb base)
+                                (:query base)
+                                path
+                                :silent true)
+            command (engine/evaluate (str "(load-lib \"" path "\" :silent t)"))
+            direct-description (engine/evaluate
+                                "(the description of Version)"
+                                (select-keys direct [:kb :query]))
+            command-classes (engine/evaluate
+                             "(the superclasses of Version)"
+                             (select-keys command [:kb :query]))]
+        (is (empty? (:errors direct)) (pr-str (:errors direct)))
+        (is (empty? (:errors command)) (pr-str (:errors command)))
+        (is (frame/known-frame? (:kb direct) (symbol "Version")))
+        (is (= (term "(\"Tue Oct 12 16:54:46 CDT 2010\")")
+               (:value direct-description)))
+        (is (= (term "(KM-Class)") (:value command-classes))))
+      (finally
+        (doseq [child (.listFiles dir)]
+          (.delete child))
+        (.delete dir)))))
 
 (deftest a-depth-limit-stops-the-inner-sum
   (let [base (engine/session)

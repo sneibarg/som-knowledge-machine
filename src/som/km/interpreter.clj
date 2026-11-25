@@ -149,11 +149,19 @@
     (string? form) (symbol nil form)
     :else form))
 
-(defn- head-name
-  "The lower-case name of a list's head symbol."
+(defn- command-name
+  "The lower-case name when the head is a command spelling.
+
+  Lisp matches the symbol in *km-lisp-exprs* and the downcased copy of
+  that symbol. The host reader upcases the source, so the two spellings
+  are the upper-case name and the lower-case name. A mixed-case name is
+  a different symbol."
   [expr]
   (when (and (term/cons? expr) (term/km-symbol? (term/car expr)))
-    (str/lower-case (name (term/car expr)))))
+    (let [spelling (name (term/car expr))]
+      (when (or (= spelling (str/lower-case spelling))
+                (= spelling (str/upper-case spelling)))
+        (str/lower-case spelling)))))
 
 (defn- showme-head?
   [expr]
@@ -497,7 +505,7 @@
   inference. A trace command is the exact singleton. Extra arguments do
   not match it. nil means this expression is not one of those commands."
   [state expr fail-mode]
-  (let [name (head-name expr)]
+  (let [name (command-name expr)]
     (cond
       (exact-trace? expr)
       (if (str/starts-with? name "untrace")

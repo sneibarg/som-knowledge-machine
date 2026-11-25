@@ -47,15 +47,25 @@
          (when (pos? n)
            (str " " n (if (= 1 n) " error was" " errors were") " recorded.")))))
 
+(defn load-libraries
+  "Load each library into session and print one summary line.
+
+  session is an atom from som.km.repl/session. Each map has :label and
+  :expression. :expression is evaluated with load-expression, so the
+  session keeps the returned knowledge base. Returns session."
+  [session entries]
+  (doseq [{:keys [label expression]} entries]
+    (println (str "Loading " label "..."))
+    (flush)
+    (println (load-summary label (load-expression session expression)))
+    (flush))
+  session)
+
 (defn -main
   "Print the banner, load both component libraries, and run the prompt."
   [& _]
   (print (repl/banner))
   (flush)
   (let [session (repl/session)]
-    (doseq [{:keys [label expression]} (libraries)]
-      (println (str "Loading " label "..."))
-      (flush)
-      (println (load-summary label (load-expression session expression)))
-      (flush))
+    (load-libraries session (libraries))
     (repl/run session)))

@@ -1,0 +1,15 @@
+;; Read by clojure -M:configured. Each directory is loaded in order.
+;; The first seven entries are the component-library build "all" in
+;; tools/builds.lisp. km-filepath uses that build when none is named.
+;; The last entry is the Springs of MUD library.
+;; chem-halo, bio-halo, phys-halo, and the SME-* directories are other
+;; builds. They are left out of this file.
+{:component-libraries
+ ["src/resources/km-component-library/rkf-clib/components/core"
+  "src/resources/km-component-library/rkf-clib/components/specs"
+  "src/resources/km-component-library/rkf-clib/components/science/shared"
+  "src/resources/km-component-library/rkf-clib/components/science/biology"
+  "src/resources/km-component-library/rkf-clib/components/science/physics"
+  "src/resources/km-component-library/rkf-clib/components/science/chemistry"
+  "src/resources/km-component-library/rkf-clib/components/bsp"
+  "src/resources/som-component-library"]}

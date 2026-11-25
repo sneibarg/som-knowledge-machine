@@ -12,6 +12,7 @@
          :exec-fn cognitect.test-runner.api/test}
   :repl {:main-opts ["-m" "som.km.repl"]}
   :start {:main-opts ["-m" "som.km.startup"]}
+  :configured {:main-opts ["-m" "som.km.configured"]}
   :server {:main-opts ["-m" "som.km.server"]}
   :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.14"}}
           :ns-default build}}}

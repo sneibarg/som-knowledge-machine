@@ -68,6 +68,12 @@ sh ./startup.sh
 startup.cmd
 ```
 
+`clojure -M:configured` starts that same prompt from `src/resources/config.edn`. The file is EDN. The `:component-libraries` section is the component-library build `all` from `tools/builds.lisp`, then the Springs of MUD library. Each directory is loaded in the order written, through `(load-lib)`, which walks it recursively. A path in the file is relative to the working directory. A backslash is rewritten to a forward slash. The load does not print a line per file. It prints how many errors that directory recorded, and the prompt keeps the loaded knowledge base. A missing file, or a file that is not this map, stops before the prompt. `(load-lib)` with no directory still walks the whole `components` tree, including the halo and SME variants that build `all` leaves out.
+
+```
+clojure -M:configured
+```
+
 ## HTTP service
 
 ```

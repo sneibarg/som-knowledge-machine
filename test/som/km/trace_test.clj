@@ -196,7 +196,11 @@
         mixed (answer "(Trace)")]
     (is (= "not-ported" (:error extra)))
     (is (str/includes? (:message extra) "Embedded Lisp is refused"))
-    (is (= "not-ported" (:error mixed)))))
+    (is (:ok mixed))
+    (is (nil? (:error mixed)))
+    (is (empty? (:errors mixed)))
+    (is (= (term-of "(Trace)") (:value mixed)))
+    (is (not (str/includes? (str (:text mixed)) "Tracing of KM switched on")))))
 
 (defn- plan [texts]
   (reduce on (answer (first texts)) (rest texts)))
