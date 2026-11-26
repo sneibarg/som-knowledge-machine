@@ -1,0 +1,11 @@
+;; Som-Personality.km
+;; Skeleton. The disposition loaded from config.
+;; Personality.md names the three axes. No rule decides a greeting.
+
+(Som-Personality has
+  (superclasses (Thing)))
+
+(som-personality-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("hunter, traveler, or companion, when a name was configured")))
+(som-bearing has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("intent, civil, or sociable")))
+(som-personality-company has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("solo, civil, or companion")))
+(som-manner has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("spare, plain, or warm")))

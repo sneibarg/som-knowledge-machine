@@ -1,0 +1,70 @@
+;; Som-Area-Choice.km
+;; Which explored area shortens the time to the next level.
+;; This file does not declare a class. The conclusions are on the view.
+;;
+;; A listed area is not a candidate until the caller asserts som-explored.
+;; The range has to contain the character's level. Among those areas,
+;; the greatest som-level-low is the content closest to the character.
+;; The same low breaks by the least som-level-high. The same bounds
+;; keep the caller's sequence order.
+;;
+;; som-areas-known stays the boolean hunt rule 3 reads. This file does
+;; not license a directive and does not name a path.
+
+(som-explored-area has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("explored areas, in the caller's order")))
+(som-explored-area-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-explored-area")))
+(som-fitting-area has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("explored areas whose range contains the character's level")))
+(som-fitting-area-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-fitting-area")))
+(som-optimal-area has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the explored area that shortens the time to the next level")))
+(som-optimal-area-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-optimal-area")))
+
+(every Som-Goal-View has
+  (som-explored-area ((the som-explored-area-rule of Self)))
+  (som-fitting-area ((the som-fitting-area-rule of Self)))
+  (som-optimal-area ((the som-optimal-area-rule of Self)))
+
+  (som-explored-area-rule
+    ((if ((has-value (the som-area of (the som-progress of Self)))
+          and
+          (not ((the som-area of (the som-progress of Self)) = (:seq))))
+         then (forall-seq ?a in (the som-area of (the som-progress of Self))
+                          where ((the som-explored of ?a) = t)
+                          ?a))))
+
+  (som-fitting-area-rule
+    ((if ((has-value (the som-level of (the som-progress of Self)))
+          and
+          (has-value (the som-explored-area of Self))
+          and
+          (not ((the som-explored-area of Self) = (:seq))))
+         then (forall-seq ?a in (the som-explored-area of Self)
+                          where ((has-value (the som-level-low of ?a))
+                                 and
+                                 (has-value (the som-level-high of ?a))
+                                 and
+                                 ((the som-level-low of ?a)
+                                  <= (the som-level of (the som-progress of Self)))
+                                 and
+                                 ((the som-level of (the som-progress of Self))
+                                  <= (the som-level-high of ?a)))
+                          ?a))))
+
+  (som-optimal-area-rule
+    ((if ((has-value (the som-fitting-area of Self))
+          and
+          (not ((the som-fitting-area of Self) = (:seq))))
+         then (the1 of
+               (forall-seq ?a in (the som-fitting-area of Self)
+                           where ((the seq-length of
+                                   (forall-seq ?b in (the som-fitting-area of Self)
+                                               where (((the som-level-low of ?b)
+                                                       > (the som-level-low of ?a))
+                                                      or
+                                                      (((the som-level-low of ?b)
+                                                        = (the som-level-low of ?a))
+                                                       and
+                                                       ((the som-level-high of ?b)
+                                                        < (the som-level-high of ?a))))
+                                               ?b))
+                                  = 0)
+                           ?a))))))

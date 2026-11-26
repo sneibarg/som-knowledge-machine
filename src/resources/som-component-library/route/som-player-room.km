@@ -1,0 +1,21 @@
+;; som-player-room.km
+;; The explored rooms on the current situation, in the order the
+;; caller asserted them. One :seq. The rooms are members of that seq.
+;; The file is not named som-explored-room.km. On a case-insensitive
+;; volume that name is the class file Som-Explored-Room.km.
+
+(som-explored-room has
+  (instance-of (Slot))
+  (domain (Thing))
+  (range (Som-Explored-Room))
+  (inverse (som-explored-room-of))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (original-slot (t)))
+
+(som-explored-room has (text-gloss ("includes the explored room")))
+
+(som-explored-room-of has
+  (instance-of (Slot))
+  (fluent-status (*Fluent))
+  (text-gloss ("is a room known to")))

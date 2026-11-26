@@ -1,0 +1,15 @@
+;; Som-Room-Exit.km
+;; One direction an explored room allows.
+;; som-exit-to is the explored room that direction enters.
+;; som-requires-open is t when the door must be opened.
+;; som-requires-unlock is t when the door must be unlocked.
+;; An empty flag means that step is not required.
+;; A locked door has both flags. A closed door has the open flag.
+
+(Som-Room-Exit has
+  (superclasses (Thing)))
+
+(som-exit-direction has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the direction this room allows")))
+(som-exit-to has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the explored room this direction enters")))
+(som-requires-open has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("this direction must be opened")))
+(som-requires-unlock has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("this direction must be unlocked")))

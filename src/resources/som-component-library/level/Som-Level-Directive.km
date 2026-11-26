@@ -4,7 +4,9 @@
 ;; These four engine rules already ran and are not here:
 ;; danger at play.flee_hp, leave a threat the engine did not engage,
 ;; stand after a position refusal, and an owed reply.
-;; A personality yield, a gear strategy, and a catalog pick are absent.
+;; Rules 10 and 12 send som-exploration-attempt. That conclusion is the
+;; known commands that explore. A personality yield and a gear strategy
+;; are absent. The other hunt attempts still name their verb.
 ;; som-gear-gate is consulted only by rule 1.
 
 (Som-Level-Directive has
@@ -241,16 +243,13 @@
                                                       then (:args engage combat kill
                                                                   (the som-mobile-name of (the som-engage-reading of Self)))
                                                       else (if ((the som-licensed-rule of Self) = 10)
-                                                               then (forall-seq ?e in (the som-untried-exits of (the som-progress of Self))
-                                                                                where t
-                                                                                (:args travel movement ?e ""))
+                                                               then (the som-exploration-attempt of Self)
                                                                else (if ((the som-licensed-rule of Self) = 11)
                                                                         then (if ((the som-room-stale of (the som-progress of Self)) = t)
                                                                                  then (:args survey objects look "")
                                                                                  else (:seq))
                                                                         else (if ((the som-licensed-rule of Self) = 12)
-                                                                                 then (:seq (:args travel movement recall "")
-                                                                                            (:args survey "information / communication" where ""))
+                                                                                 then (the som-exploration-attempt of Self)
                                                                                  else (if ((the som-licensed-rule of Self) = 13)
                                                                                           then (:args checkpoint other save "")))))))))))))
 

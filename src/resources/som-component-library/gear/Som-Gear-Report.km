@@ -1,0 +1,11 @@
+;; Som-Gear-Report.km
+;; Skeleton. What one player said about a piece.
+;; Gear.md keeps a report off the compare result. No rule reads this class.
+
+(Som-Gear-Report has
+  (superclasses (Thing)))
+
+(som-speaker has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("who answered")))
+(som-report-text has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the raw answer")))
+(som-claim has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, better, worse, or same")))
+(som-reported-type has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty until the words name one of the eight weapon types")))

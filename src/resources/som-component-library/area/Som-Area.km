@@ -1,0 +1,13 @@
+;; Som-Area.km
+;; One area from the areas listing. The caller asserts that the
+;; character has been there. A listed area with an empty som-explored
+;; has not been explored.
+
+(Som-Area has
+  (superclasses (Thing)))
+
+(som-area-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the area name")))
+(som-area-author has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the author the areas listing printed")))
+(som-level-low has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the low end of the listed level range")))
+(som-level-high has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the high end of the listed level range")))
+(som-explored has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the character has been in this area")))

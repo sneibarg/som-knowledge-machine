@@ -1,0 +1,158 @@
+;; Som-Command-Choice.km
+;; Which stored commands serve a goal, and which of them explore.
+;; This file does not declare a class. The conclusions are on the view.
+;;
+;; Bootstrap asserts som-known-command on the current situation. The
+;; view reads that situation. Another situation does not see the seq.
+;;
+;; som-command-goal names the goal being asked: explore, recover,
+;; survey, escape, engage, look, or checkpoint. som-command-for-goal
+;; is the known commands whose heading is that goal's category, in
+;; the order bootstrap stored them. A command whose stored category
+;; differs from that category is skipped. A refused name is skipped.
+;;
+;; Exploration does not read som-command-goal. Rule 10's attempts are
+;; the untried exits whose names are known movement commands, in exit
+;; order. Rule 12's attempts are recall when that command is known as
+;; movement, then where when that command is known as
+;; information / communication. The area those steps serve, when one
+;; explored area fits the level, is som-optimal-area. These attempts
+;; do not name a path.
+
+(som-player-command has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("commands stored on the current situation")))
+(som-player-command-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-player-command")))
+(som-command-goal has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the goal whose commands are asked")))
+(som-command-category-for-goal has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the category that goal uses")))
+(som-command-category-for-goal-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-command-category-for-goal")))
+(som-command-for-goal has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("known commands that serve the asked goal")))
+(som-command-for-goal-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-command-for-goal")))
+(som-movement-exit has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("untried exits that are known movement commands")))
+(som-movement-exit-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-movement-exit")))
+(som-recall-known has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("recall is a known movement command")))
+(som-recall-known-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-recall-known")))
+(som-where-known has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("where is a known information command")))
+(som-where-known-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-where-known")))
+(som-exploration-attempt has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the attempts that explore from the known commands")))
+(som-exploration-attempt-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-exploration-attempt")))
+
+(every Som-Goal-View has
+  (som-player-command ((the som-player-command-rule of Self)))
+  (som-command-category-for-goal ((the som-command-category-for-goal-rule of Self)))
+  (som-command-for-goal ((the som-command-for-goal-rule of Self)))
+  (som-movement-exit ((the som-movement-exit-rule of Self)))
+  (som-recall-known ((the som-recall-known-rule of Self)))
+  (som-where-known ((the som-where-known-rule of Self)))
+  (som-exploration-attempt ((the som-exploration-attempt-rule of Self)))
+
+  (som-player-command-rule
+    ((if ((has-value (the som-known-command of (curr-situation)))
+          and
+          (not ((the som-known-command of (curr-situation)) = (:seq))))
+         then (the som-known-command of (curr-situation)))))
+
+  (som-command-category-for-goal-rule
+    ((if (has-value (the som-command-goal of Self))
+         then (if (((the som-command-goal of Self) = explore)
+                   or
+                   ((the som-command-goal of Self) = recover))
+                  then movement
+                  else (if ((the som-command-goal of Self) = survey)
+                           then "information / communication"
+                           else (if (((the som-command-goal of Self) = escape)
+                                     or
+                                     ((the som-command-goal of Self) = engage))
+                                    then combat
+                                    else (if ((the som-command-goal of Self) = look)
+                                             then objects
+                                             else (if ((the som-command-goal of Self) = checkpoint)
+                                                      then other))))))))
+
+  (som-command-for-goal-rule
+    ((if ((has-value (the som-command-category-for-goal of Self))
+          and
+          (has-value (the som-player-command of Self))
+          and
+          (not ((the som-player-command of Self) = (:seq))))
+         then (forall-seq ?c in (the som-player-command of Self)
+                          where (((the som-command-allowed of ?c) = t)
+                                 and
+                                 (has-value (the som-command-heading of ?c))
+                                 and
+                                 ((the som-command-heading of ?c)
+                                  = (the som-command-category-for-goal of Self)))
+                          ?c))))
+
+  (som-movement-exit-rule
+    ((if ((has-value (the som-player-command of Self))
+          and
+          (not ((the som-player-command of Self) = (:seq)))
+          and
+          (has-value (the som-untried-exits of (the som-progress of Self)))
+          and
+          (not ((the som-untried-exits of (the som-progress of Self)) = (:seq))))
+         then (forall-seq ?e in (the som-untried-exits of (the som-progress of Self))
+                          where (has-value
+                                 (the1 of
+                                  (forall-seq ?c in (the som-player-command of Self)
+                                              where (((the som-command-allowed of ?c) = t)
+                                                     and
+                                                     (has-value (the som-command-heading of ?c))
+                                                     and
+                                                     ((the som-command-heading of ?c) = movement)
+                                                     and
+                                                     ((the som-command-name of ?c) = ?e))
+                                              ?c)))
+                          ?e))))
+
+  (som-recall-known-rule
+    ((if ((has-value (the som-player-command of Self))
+          and
+          (not ((the som-player-command of Self) = (:seq))))
+         then (if (has-value
+                   (the1 of
+                    (forall-seq ?c in (the som-player-command of Self)
+                                where (((the som-command-allowed of ?c) = t)
+                                       and
+                                       (has-value (the som-command-heading of ?c))
+                                       and
+                                       ((the som-command-heading of ?c) = movement)
+                                       and
+                                       ((the som-command-name of ?c) = recall))
+                                ?c)))
+                  then t))))
+
+  (som-where-known-rule
+    ((if ((has-value (the som-player-command of Self))
+          and
+          (not ((the som-player-command of Self) = (:seq))))
+         then (if (has-value
+                   (the1 of
+                    (forall-seq ?c in (the som-player-command of Self)
+                                where (((the som-command-allowed of ?c) = t)
+                                       and
+                                       (has-value (the som-command-heading of ?c))
+                                       and
+                                       ((the som-command-heading of ?c) = "information / communication")
+                                       and
+                                       ((the som-command-name of ?c) = "where"))
+                                ?c)))
+                  then t))))
+
+  (som-exploration-attempt-rule
+    ((if ((the som-licensed-rule of Self) = 10)
+         then (if ((has-value (the som-movement-exit of Self))
+                   and
+                   (not ((the som-movement-exit of Self) = (:seq))))
+                  then (forall-seq ?e in (the som-movement-exit of Self)
+                                   where t
+                                   (:args travel movement ?e ""))
+                  else (:seq))
+         else (if ((the som-licensed-rule of Self) = 12)
+                  then (if ((the som-recall-known of Self) = t)
+                           then (if ((the som-where-known of Self) = t)
+                                    then (:seq (:args travel movement recall "")
+                                               (:args survey "information / communication" where ""))
+                                    else (:args travel movement recall ""))
+                           else (if ((the som-where-known of Self) = t)
+                                    then (:args survey "information / communication" where "")
+                                    else (:seq))))))))

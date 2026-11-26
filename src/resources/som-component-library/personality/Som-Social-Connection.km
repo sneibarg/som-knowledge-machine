@@ -1,0 +1,16 @@
+;; Som-Social-Connection.km
+;; Skeleton. One bond with another character.
+;; GameplayEngine.md stores standing and a pending reply.
+;; Personality.md adds company. No rule reads this class.
+
+(Som-Social-Connection has
+  (superclasses (Thing)))
+
+(som-bond-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the other character's name")))
+(som-standing has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("unknown, noticed, greeted, talking, grouped, or avoid")))
+(som-pending has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, tell, or say")))
+(som-pending-text has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the line a reply is owed")))
+(som-last-utterance has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the last line sent to this character")))
+(som-turns has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("how many times this character was spoken to")))
+(som-last-room has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the room name when this character was last seen")))
+(som-bond-company has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, following, or refused")))

@@ -1,0 +1,11 @@
+;; Som-Learned-Ability.km
+;; Skeleton. One skill or spell from the practice listing.
+;; Practice.md stores the percent. No rule chooses the next session.
+
+(Som-Learned-Ability has
+  (superclasses (Thing)))
+
+(som-ability-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the skill or spell name")))
+(som-ability-percent has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the percent the listing printed")))
+(som-ability-done has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the listing says this name is learned")))
+(som-group-only has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("this name is bought only as a group")))

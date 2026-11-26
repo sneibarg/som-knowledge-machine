@@ -1,0 +1,8 @@
+;; Som-Explored-Room.km
+;; One room the character has been in. The caller asserts the name.
+;; The exits from this room are a seq on som-room-exit.
+
+(Som-Explored-Room has
+  (superclasses (Thing)))
+
+(som-place-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the name of the explored room")))

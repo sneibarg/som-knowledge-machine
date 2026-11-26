@@ -1,0 +1,11 @@
+;; Som-Alignment.km
+;; Skeleton. The side read from score.
+;; Gear.md stores the word, the integer when the line had one, and the side.
+;; No rule blocks a piece.
+
+(Som-Alignment has
+  (superclasses (Thing)))
+
+(som-alignment-word has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the word score printed")))
+(som-alignment-integer has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the integer score printed, when the line had one")))
+(som-alignment-side has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("good, evil, or neutral")))

@@ -4,3 +4,9 @@
 
 (Som-Agentic-Player has
   (superclasses (Situation)))
+
+(som-bootstrap has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("bootstrap has completed")))

@@ -1,0 +1,9 @@
+;; Som-Weapon-Skill.km
+;; Skeleton. One practiced weapon skill and its percent.
+;; Gear.md stores the row from bare practice. No rule ranks a weapon.
+
+(Som-Weapon-Skill has
+  (superclasses (Thing)))
+
+(som-weapon-skill-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("sword, dagger, spear, mace, axe, flail, whip, polearm, or hand to hand")))
+(som-weapon-percent has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the percent bare practice printed")))

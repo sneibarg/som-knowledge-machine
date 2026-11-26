@@ -1,0 +1,28 @@
+;; Som-Gear-Piece.km
+;; Skeleton. One studied piece of gear.
+;; Gear.md owns the record. No rule compares, wears, or enchants it.
+;; som-worn-slot is also what Som-Gear-Goal asserts for the slot it replaces.
+;; som-rejects is a :seq of good, evil, and neutral. A report is a Som-Gear-Report.
+
+(Som-Gear-Piece has
+  (superclasses (Thing)))
+
+(som-short has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the short description")))
+(som-keyword has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the word look or compare accepted")))
+(som-location has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("worn, carried, room, or other")))
+(som-worn-slot has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the equipment slot name")))
+(som-slot-index has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("which one of a paired slot, in print order")))
+(som-holder has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the character, the room, or the other person")))
+(som-look-result has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, shown, nothing_special, ambiguous, missing, or blocked")))
+(som-description has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the look text")))
+(som-comparison has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, better, worse, same, or incomparable")))
+(som-compared-to has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the other short text in the compare sentence")))
+(som-enchant has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, success, exceptional, failed, disenchanted, or destroyed")))
+(som-gear-kind has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, weapon, or armor")))
+(som-weapon-type has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, or one of the eight weapon skills")))
+(som-wield-band has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, part, confident, skilled, adequate, clumsy, fumble, or lost")))
+(som-object-level has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the object level, when a sentence printed it")))
+(som-level-block has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, or refused")))
+(som-alignment-known has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the identify extra-flags clause has been read")))
+(som-alignment-block has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, or zapped")))
+(som-rejects has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("sides that cannot wear this piece")))

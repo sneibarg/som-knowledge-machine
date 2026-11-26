@@ -1,0 +1,136 @@
+;; Som-Known-Command.km
+;; One command bootstrap stored for this character.
+;; The caller asserts the name, and the category and help text when
+;; bootstrap stored them. A blank category is the SUMMARY heading for
+;; that name. A stored category wins, including when it differs from
+;; the SUMMARY heading. consider is not on the SUMMARY index. Its
+;; blank heading is information / communication.
+;;
+;; som-command-allowed is t when the name is one the catalog may return.
+;; quit, delete, murder, steal, password, and ! stay excluded.
+;; The name where is the string "where", and delete is the string
+;; "delete". Those spellings are reserved when written as symbols.
+
+(Som-Known-Command has
+  (superclasses (Thing)))
+
+(som-command-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the command name")))
+(som-command-category has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the help-index category")))
+(som-command-help has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the stored help text")))
+(som-command-heading has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the category this command serves")))
+(som-command-heading-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-command-heading")))
+(som-command-allowed has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the catalog may return this command")))
+(som-command-allowed-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-command-allowed")))
+
+(every Som-Known-Command has
+  (som-command-heading ((the som-command-heading-rule of Self)))
+  (som-command-allowed ((the som-command-allowed-rule of Self)))
+
+  (som-command-heading-rule
+    ((if ((has-value (the som-command-category of Self))
+          and
+          (not ((the som-command-category of Self) = "")))
+         then (the som-command-category of Self)
+         else (if (has-value (the som-command-name of Self))
+                  then (the1 of
+                        (forall-seq ?row in (:seq
+                                             (:args north movement)
+                                             (:args south movement)
+                                             (:args east movement)
+                                             (:args west movement)
+                                             (:args up movement)
+                                             (:args down movement)
+                                             (:args exits movement)
+                                             (:args recall movement)
+                                             (:args sleep movement)
+                                             (:args wake movement)
+                                             (:args rest movement)
+                                             (:args stand movement)
+                                             (:args follow group)
+                                             (:args group group)
+                                             (:args gtell group)
+                                             (:args split group)
+                                             (:args get objects)
+                                             (:args put objects)
+                                             (:args drop objects)
+                                             (:args give objects)
+                                             (:args sacrifice objects)
+                                             (:args wear objects)
+                                             (:args wield objects)
+                                             (:args hold objects)
+                                             (:args recite objects)
+                                             (:args quaff objects)
+                                             (:args zap objects)
+                                             (:args brandish objects)
+                                             (:args lock objects)
+                                             (:args unlock objects)
+                                             (:args open objects)
+                                             (:args close objects)
+                                             (:args pick objects)
+                                             (:args inventory objects)
+                                             (:args equipment objects)
+                                             (:args look objects)
+                                             (:args compare objects)
+                                             (:args eat objects)
+                                             (:args drink objects)
+                                             (:args fill objects)
+                                             (:args list objects)
+                                             (:args buy objects)
+                                             (:args sell objects)
+                                             (:args value objects)
+                                             (:args help "information / communication")
+                                             (:args credits "information / communication")
+                                             (:args commands "information / communication")
+                                             (:args areas "information / communication")
+                                             (:args report "information / communication")
+                                             (:args score "information / communication")
+                                             (:args time "information / communication")
+                                             (:args weather "information / communication")
+                                             (:args "where" "information / communication")
+                                             (:args who "information / communication")
+                                             (:args description "information / communication")
+                                             (:args password "information / communication")
+                                             (:args title "information / communication")
+                                             (:args bug "information / communication")
+                                             (:args idea "information / communication")
+                                             (:args typo "information / communication")
+                                             (:args gossip "information / communication")
+                                             (:args cgossip "information / communication")
+                                             (:args say "information / communication")
+                                             (:args shout "information / communication")
+                                             (:args tell "information / communication")
+                                             (:args yell "information / communication")
+                                             (:args emote "information / communication")
+                                             (:args pose "information / communication")
+                                             (:args note "information / communication")
+                                             (:args kill combat)
+                                             (:args flee combat)
+                                             (:args kick combat)
+                                             (:args rescue combat)
+                                             (:args disarm combat)
+                                             (:args backstab combat)
+                                             (:args cast combat)
+                                             (:args wimpy combat)
+                                             (:args "!" other)
+                                             (:args save other)
+                                             (:args quit other)
+                                             (:args practice other)
+                                             (:args train other)
+                                             (:args consider "information / communication"))
+                                    where ((the1 of ?row) = (the som-command-name of Self))
+                                    (the2 of ?row)))))))
+
+  (som-command-allowed-rule
+    ((if (has-value (the som-command-name of Self))
+         then (if ((not ((the som-command-name of Self) = quit))
+                   and
+                   (not ((the som-command-name of Self) = "delete"))
+                   and
+                   (not ((the som-command-name of Self) = murder))
+                   and
+                   (not ((the som-command-name of Self) = steal))
+                   and
+                   (not ((the som-command-name of Self) = password))
+                   and
+                   (not ((the som-command-name of Self) = "!")))
+                  then t)))))

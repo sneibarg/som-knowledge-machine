@@ -1,0 +1,10 @@
+;; Som-Practice-Room.km
+;; Skeleton. Whether one room accepted practice or gain.
+;; Practice.md stores the mark. No rule walks to a guild.
+
+(Som-Practice-Room has
+  (superclasses (Thing)))
+
+(som-room-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the room name")))
+(som-practice-mark has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, accepted, or refused for practice")))
+(som-gain-mark has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, accepted, or refused for gain")))

@@ -1,0 +1,21 @@
+;; som-explored-exit.km
+;; The directions one explored room allows, in the order the room
+;; listed them. One :seq. The exits are members of that seq.
+;; The file is not named som-room-exit.km. On a case-insensitive
+;; volume that name is the class file Som-Room-Exit.km.
+
+(som-room-exit has
+  (instance-of (Slot))
+  (domain (Thing))
+  (range (Som-Room-Exit))
+  (inverse (som-room-exit-of))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (original-slot (t)))
+
+(som-room-exit has (text-gloss ("includes the exit")))
+
+(som-room-exit-of has
+  (instance-of (Slot))
+  (fluent-status (*Fluent))
+  (text-gloss ("is an exit from")))

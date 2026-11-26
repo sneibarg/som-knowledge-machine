@@ -1,0 +1,21 @@
+;; som-known-area.km
+;; The areas on one projection, in the order the caller asserted.
+;; One :seq. The areas are members of that seq.
+;; The file is not named som-area.km. On a case-insensitive volume
+;; that name is the class file Som-Area.km.
+
+(som-area has
+  (instance-of (Slot))
+  (domain (Thing))
+  (range (Som-Area))
+  (inverse (som-area-of))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (original-slot (t)))
+
+(som-area has (text-gloss ("includes the area")))
+
+(som-area-of has
+  (instance-of (Slot))
+  (fluent-status (*Fluent))
+  (text-gloss ("is an area on")))

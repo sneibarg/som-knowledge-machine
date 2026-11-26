@@ -1,0 +1,21 @@
+;; som-player-command.km
+;; The commands bootstrap stored for one agentic player.
+;; One :seq on that player's situation, in the order bootstrap stored them.
+;; The file is not named som-known-command.km. On a case-insensitive volume
+;; that name is the class file Som-Known-Command.km.
+
+(som-known-command has
+  (instance-of (Slot))
+  (domain (Thing))
+  (range (Som-Known-Command))
+  (inverse (som-known-command-of))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (original-slot (t)))
+
+(som-known-command has (text-gloss ("includes the command learned at bootstrap")))
+
+(som-known-command-of has
+  (instance-of (Slot))
+  (fluent-status (*Fluent))
+  (text-gloss ("is a command known to")))

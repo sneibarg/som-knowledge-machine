@@ -93,17 +93,17 @@ A bold line with a max hit and an empty floor is `clear`. The division sits in t
 | 7 | Not fighting, health line `clear`, position `resting` | `recover` | `(:args recover movement stand "")` |
 | 8 | A survey reading exists | `survey` | `consider` that reading's name |
 | 9 | An engage reading exists | `engage` | `kill` that reading's name |
-| 10 | No survey, no engage, exit allowed, and the exit seq is non-empty | `travel` | one `(:args travel movement <direction> "")` per exit |
+| 10 | No survey, no engage, exit allowed, and the exit seq is non-empty | `travel` | `som-exploration-attempt`: one `(:args travel movement <direction> "")` per untried exit that is a known allowed movement command, in exit order. `(:seq)` when none are. |
 | 11 | No survey, no engage, repop room, and pace is `ahead`, `on`, `open`, or `sampling` | `survey` or `hold` | `look` when the room is stale, otherwise `(:seq)` |
-| 12 | Checkpoint is not due, exit is not allowed, the exit seq is non-empty, and rules 8 through 11 missed | `travel` | `recall`, then `where` |
+| 12 | Checkpoint is not due, exit is not allowed, the exit seq is non-empty, and rules 8 through 11 missed | `travel` | `som-exploration-attempt`: `recall` when it is a known movement command, then `where` when it is a known information command. |
 | 13 | Checkpoint is due | `checkpoint` | `(:args checkpoint other save "")` |
 | 14 | Nothing above | | No directive. |
 
 Score due is `t` when the score count is `0`, when `som-score-forced` is `t`, or when `som-score-steps` has reached `som-score-every`. Checkpoint due is `t` when `som-saves` is `0`. A due score is rule 2 and comes before the checkpoint.
 
-Rule 12's attempts are `(:args travel movement recall "")` and then `(:args survey "information / communication" where "")`. Those two attempts are not added to `save`, and they are not built for the idle view that has no exits. A checkpoint-due view with no earlier hunt is rule 13. The same view after `som-saves` is `1` is rule 14.
+Rule 12 sends `som-exploration-attempt`. Both commands known gives `(:args travel movement recall "")` and then `(:args survey "information / communication" where "")`. Only one of them gives that single `:args`. Neither gives `(:seq)`. Those attempts are not added to `save`, and they are not built for the idle view that has no exits. A checkpoint-due view with no earlier hunt is rule 13. The same view after `som-saves` is `1` is rule 14.
 
-Rule 10's argument is `""`. The preference is the direction, so the attempt names `north` once.
+Rule 10's argument is `""`. The preference is the direction. The direction is included when that exit's name is a known allowed command whose heading is `movement`. A stored category other than `movement` leaves the exit out. A blank category uses the SUMMARY heading, so `north` is `movement`. When no untried exit is that kind of command, the attempts are `(:seq)` and the directive still exists.
 
 Attempts do not use these preferences: `practice`, `train`, `eat`, `drink`, `follow`, `group`, `kick`, `cast`, `backstab`, `disarm`, `rescue`, `wimpy`, `quit`, `delete`, `murder`, `steal`, `password`, or `!`. Engage is `kill` only.
 
@@ -113,4 +113,36 @@ The category that contains a slash is the string `"information / communication"`
 
 Rules 5 and 6 are the opponent branches in the strategy notes. They are not encoded. `som-opponent-outlook` stays empty, and a missing consider is still rule 8, including while fighting. An idle fighting view with a clear or empty health line, no mobiles, and no exits is rule 14.
 
-The header of `Som-Level-Directive.km` names the four engine rules that have already run: danger at `play.flee_hp`, leave a threat the engine did not engage, stand after a position refusal, and an owed reply. A personality yield, a gear strategy, and a catalog pick are absent here.
+The header of `Som-Level-Directive.km` names the four engine rules that have already run: danger at `play.flee_hp`, leave a threat the engine did not engage, stand after a position refusal, and an owed reply. A personality yield and a gear strategy are absent here. Rules 10 and 12 read the commands stored on the current situation.
+
+## Explored areas
+
+`som-areas-known` is the boolean rule 3 reads. It means the areas listing has been stored. `som-explored` is a different fact: the caller asserts `t` on an area the character has been in.
+
+`som-explored-area` is that subset, in the caller's sequence order. `som-fitting-area` keeps an explored area when `som-level-low` and `som-level-high` both have values and `som-level` sits between them, including the ends. An empty level, an empty bound, or a range that does not contain the level leaves the area out, and the comparison is not attempted.
+
+`som-optimal-area` is one fitting area. The greatest `som-level-low` wins, because that range starts closest to the character and is the content that still counts toward the next level. The same low end breaks by the least `som-level-high`. The same bounds keep the caller's order. The slot is empty when no explored area contains the level.
+
+The choice does not read pace, the notch, or `som-areas-known`. It does not license a directive. Hunt rule 3 is unchanged.
+
+## Learned commands
+
+`som-known-command` is one `:seq` on the current situation, in the order bootstrap stored the commands. The view copies that seq onto `som-player-command` when it has a value and is not `(:seq)`. Another situation does not see it.
+
+`som-command-heading` is the stored `som-command-category` when that category has a value and is not `""`. Otherwise it is the SUMMARY heading whose name equals `som-command-name`. `consider` is not on the SUMMARY index. Its blank heading is `"information / communication"`. A stored category wins, including when it differs from the SUMMARY heading. The command name `where` is the string `"where"`, and `delete` is the string `"delete"`.
+
+`som-command-allowed` is `t` when the name has a value and is not `quit`, `"delete"`, `murder`, `steal`, `password`, or `"!"`.
+
+`som-command-goal` is caller-asserted. `explore` and `recover` use `movement`. `survey` uses `"information / communication"`. `escape` and `engage` use `combat`. `look` uses `objects`. `checkpoint` uses `other`. An empty or unknown goal has no category.
+
+`som-command-for-goal` is every allowed command on `som-player-command` whose heading equals that category, in bootstrap order. A stored category `movement` on `kill` includes `kill` in `explore` and leaves it out of `engage`.
+
+`som-exploration-attempt` reads `som-licensed-rule`. It does not read `som-command-goal`, and it does not require `som-optimal-area`. The area those steps serve, when one explored area fits the level, remains `som-optimal-area`. The attempts do not name a path. Every licensed rule other than 10 and 12 leaves the slot empty.
+
+## Exits to a destination
+
+`som-route-exits` is the first path in the order each room lists its exits. The search starts at `som-route-from`. Each room contributes the first exit whose far room is `som-route-to`, or whose far room can continue to it. A direct arrival is that one exit. A longer arrival is that exit followed by the exits from the far room.
+
+An exit back to the room already being searched is skipped. An exit whose far room is not on the situation's `som-explored-room` seq is skipped. An exit with no `som-exit-to` is not a step. The same room at both ends is `(:seq)`, and the walk does not run. No connection leaves `som-route-exits` empty.
+
+`som-requires-open` and `som-requires-unlock` stay on the exit. The seq does not insert `open` or `unlock`. After the exits change, the caller asks with a new `Som-Route`. Replacing the room's exit seq uses `now-has`.

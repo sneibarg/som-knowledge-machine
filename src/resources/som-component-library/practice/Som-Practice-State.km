@@ -1,0 +1,13 @@
+;; Som-Practice-State.km
+;; Skeleton. The practice clock for one character.
+;; Practice.md stores the class, the trains, and the stale flags.
+;; Offers are Som-Gain-Offer. Room marks are Som-Practice-Room.
+;; No rule chooses a session.
+
+(Som-Practice-State has
+  (superclasses (Thing)))
+
+(som-class-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, mage, cleric, thief, or warrior")))
+(som-trains has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("training sessions from the score line")))
+(som-listing-stale has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the practice listing needs to be read again")))
+(som-offers-stale has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the gain offers need to be read again")))

@@ -1,0 +1,10 @@
+;; Som-Gain-Offer.km
+;; Skeleton. One row from gain list.
+;; Practice.md stores the printed name, kind, and cost. No rule buys it.
+
+(Som-Gain-Offer has
+  (superclasses (Thing)))
+
+(som-offer-name has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the group or skill name gain list printed")))
+(som-offer-kind has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("group or skill")))
+(som-offer-cost has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the train cost gain list printed")))
