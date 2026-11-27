@@ -1,13 +1,15 @@
 ;; Som-Gear-Goal.km
-;; Skeleton. One replace or enchant goal.
+;; A replace, regear, or legacy enchant intention.
 ;; Gear.md stores the action, the slot, and whether it is met.
 ;; The slot name is som-worn-slot, declared on Som-Gear-Piece.
-;; No rule decides that the goal is met.
+;; Fresh Som-Regear-Request results determine loadout completion; this stored met flag remains caller-owned.
 
 (Som-Gear-Goal has
   (superclasses (Thing)))
 
-(som-gear-action has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("replace or enchant")))
+(som-gear-action has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("replace, regear, or enchant")))
 (som-gear-risk has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("cautious, steady, or bold, and not the level notch")))
 (som-gear-met has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the gear goal is met")))
 (som-practices-left has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("practice sessions left on the last bare practice")))
+
+(som-gear-wanted has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the desired sequence of pieces to have equipped together")))

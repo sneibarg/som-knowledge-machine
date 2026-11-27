@@ -1,0 +1,179 @@
+;; Som-Regear-Request.km
+;; One planning context. Re-observe and create a new request after death, movement, acquisition, or refusal.
+
+(Som-Regear-Request has (superclasses (Thing)))
+
+(som-regear-goal has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the Som-Gear-Goal this request serves")))
+(som-regear-start has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the current confirmed Som-Gear-State")))
+(som-regear-limit-in has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("optional transition budget; default 16")))
+(som-regear-reserve-in has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("optional coins to leave unspent; default zero")))
+(som-regear-context has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear context")))
+(som-regear-context-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-context")))
+(som-regear-risk has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear risk")))
+(som-regear-risk-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-risk")))
+(som-regear-limit has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear limit")))
+(som-regear-limit-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-limit")))
+(som-regear-reserve has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear reserve")))
+(som-regear-reserve-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-reserve")))
+(som-regear-observations has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear observations")))
+(som-regear-observations-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-observations")))
+(som-regear-input-status has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear input status")))
+(som-regear-input-status-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-input-status")))
+(som-regear-task has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear task")))
+(som-regear-task-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-task")))
+(som-regear-status has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear status")))
+(som-regear-status-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-status")))
+(som-regear-strategy has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear strategy")))
+(som-regear-strategy-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-strategy")))
+(som-regear-next-step has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear next step")))
+(som-regear-next-step-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-next-step")))
+(som-regear-final-state has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear final state")))
+(som-regear-final-state-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-final-state")))
+(som-regear-cost has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("regear cost")))
+(som-regear-cost-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-regear-cost")))
+
+(every Som-Regear-Request has
+  (som-regear-context ((the som-regear-context-rule of Self)))
+  (som-regear-risk ((the som-regear-risk-rule of Self)))
+  (som-regear-limit ((the som-regear-limit-rule of Self)))
+  (som-regear-reserve ((the som-regear-reserve-rule of Self)))
+  (som-regear-observations ((the som-regear-observations-rule of Self)))
+  (som-regear-input-status ((the som-regear-input-status-rule of Self)))
+  (som-regear-task ((the som-regear-task-rule of Self)))
+  (som-regear-status ((the som-regear-status-rule of Self)))
+  (som-regear-strategy ((the som-regear-strategy-rule of Self)))
+  (som-regear-next-step ((the som-regear-next-step-rule of Self)))
+  (som-regear-final-state ((the som-regear-final-state-rule of Self)))
+  (som-regear-cost ((the som-regear-cost-rule of Self)))
+
+  (som-regear-context-rule
+    (Self))
+
+  (som-regear-risk-rule
+    ((if (has-value (the som-gear-risk of (the som-regear-goal of Self)))
+         then (the som-gear-risk of (the som-regear-goal of Self))
+         else cautious)))
+
+  (som-regear-limit-rule
+    ((if (has-value (the som-regear-limit-in of Self))
+         then (the som-regear-limit-in of Self)
+         else 16)))
+
+  (som-regear-reserve-rule
+    ((if (has-value (the som-regear-reserve-in of Self))
+         then (the som-regear-reserve-in of Self)
+         else 0)))
+
+  (som-regear-observations-rule
+    ((if (has-value (the som-known-gear-source of (curr-situation)))
+         then (the som-known-gear-source of (curr-situation))
+         else (:seq))))
+
+  (som-regear-input-status-rule
+    ((if (not ((has-value (the som-regear-goal of Self))
+               and
+                (has-value (the som-gear-wanted of (the som-regear-goal of Self)))
+               and
+                (has-value (the som-regear-start of Self))
+               and
+                (has-value (the som-gear-state of (curr-situation)))
+               and
+                (has-value (the som-gear-owned of (the som-regear-start of Self)))
+               and
+                (has-value (the som-gear-equipped of (the som-regear-start of Self)))
+               and
+                (has-value (the som-gear-coins of (the som-regear-start of Self)))
+               and
+                (has-value (the som-gear-room of (the som-regear-start of Self)))
+               and
+                (has-value (the som-level of (the som-regear-start of Self)))))
+         then incomplete
+         else (if (not ((the som-regear-start of Self) = (the som-gear-state of (curr-situation))))
+                  then stale
+                  else (if (not (((the som-gear-action of (the som-regear-goal of Self)) = replace)
+                                 or
+                                  ((the som-gear-action of (the som-regear-goal of Self)) = regear)))
+                           then unsupported-goal
+                           else (if ((not ((the som-gear-confirmed of (the som-regear-start of Self)) = t))
+                                     or
+                                      ((the seq-length of (forall-seq ?worn in (the som-gear-equipped of (the som-regear-start of Self))
+                                                            where (not ((the seq-length of (forall-seq ?member in (the som-gear-owned of (the som-regear-start of Self))
+                                                                                             where (?member = ?worn)
+                                                                                             ?member)) > 0))
+                                                            ?worn)) > 0)
+                                     or
+                                      ((the seq-length of (forall-seq ?worn in (the som-gear-equipped of (the som-regear-start of Self))
+                                                            where (not (has-value (the som-worn-slot of ?worn)))
+                                                            ?worn)) > 0)
+                                     or
+                                      ((the seq-length of (forall-seq ?worn in (the som-gear-equipped of (the som-regear-start of Self))
+                                                            where ((the seq-length of (forall-seq ?other in (the som-gear-equipped of (the som-regear-start of Self))
+                                                                                        where ((not (?other = ?worn))
+                                                                                               and
+                                                                                                (((the som-worn-slot of ?other) = (the som-worn-slot of ?worn))
+                                                                                                 and
+                                                                                                  ((if (has-value (the som-slot-index of ?other))
+                                                                                                       then (the som-slot-index of ?other)
+                                                                                                       else 0) = (if (has-value (the som-slot-index of ?worn))
+                                                                                                                     then (the som-slot-index of ?worn)
+                                                                                                                     else 0))))
+                                                                                        ?other)) > 0)
+                                                            ?worn)) > 0))
+                                    then inconsistent
+                                    else (if (((the som-gear-coins of (the som-regear-start of Self)) < 0)
+                                              or
+                                               ((the som-regear-reserve of Self) < 0)
+                                              or
+                                               ((the som-regear-limit of Self) < 0)
+                                              or
+                                               ((the som-gear-coins of (the som-regear-start of Self)) < (the som-regear-reserve of Self))
+                                              or
+                                               (not (((the som-regear-risk of Self) = cautious)
+                                                     or
+                                                      ((the som-regear-risk of Self) = steady)
+                                                     or
+                                                      ((the som-regear-risk of Self) = bold))))
+                                             then invalid
+                                             else ready)))))))
+
+  (som-regear-task-rule
+    ((if ((the som-regear-input-status of Self) = ready)
+         then (a Som-Regear-Task with
+                (som-task-root ((the som-regear-context of Self)))
+                (som-task-goals ((the som-gear-wanted of (the som-regear-goal of Self))))
+                (som-task-state ((the som-regear-start of Self)))
+                (som-task-seen ((:seq)))
+                (som-task-limit ((the som-regear-limit of Self)))
+                (som-task-reserve ((the som-regear-reserve of Self))))
+         else nil)))
+
+  (som-regear-status-rule
+    ((if (not ((the som-regear-input-status of Self) = ready))
+         then (the som-regear-input-status of Self)
+         else (if (not ((the som-task-goals-known of (the som-regear-task of Self)) = t))
+                  then needs-gear-evidence
+                  else (if (not ((the som-task-compatible of (the som-regear-task of Self)) = t))
+                           then incompatible-goals
+                           else (if (has-value (the som-task-steps of (the som-regear-task of Self)))
+                                    then (if ((the som-task-steps of (the som-regear-task of Self)) = (:seq))
+                                             then complete
+                                             else planned)
+                                    else blocked))))))
+
+  (som-regear-strategy-rule
+    ((the som-task-steps of (the som-regear-task of Self))))
+
+  (som-regear-next-step-rule
+    ((if ((has-value (the som-regear-strategy of Self))
+          and
+           (not ((the som-regear-strategy of Self) = (:seq))))
+         then (the1 of (the som-regear-strategy of Self))
+         else nil)))
+
+  (som-regear-final-state-rule
+    ((the som-task-final of (the som-regear-task of Self))))
+
+  (som-regear-cost-rule
+    ((if (has-value (the som-regear-final-state of Self))
+         then ((the som-gear-coins of (the som-regear-start of Self)) - (the som-gear-coins of (the som-regear-final-state of Self)))
+         else nil))))

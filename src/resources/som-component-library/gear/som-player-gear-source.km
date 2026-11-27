@@ -1,0 +1,5 @@
+;; som-player-gear-source.km
+;; One caller-owned value on the current player situation.
+
+(som-known-gear-source has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (domain (Thing)) (range (Som-Gear-Source)) (inverse (som-known-gear-source-of)) (original-slot (t)) (text-gloss ("the gear source observations indexed by this player")))
+(som-known-gear-source-of has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the inverse of som-known-gear-source")))

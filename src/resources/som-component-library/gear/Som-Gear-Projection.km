@@ -1,0 +1,5 @@
+;; Som-Gear-Projection.km
+;; Hypothetical owned gear, worn gear, purse, and room. Never installs an observed player state.
+
+(Som-Gear-Projection has (superclasses (Thing)))
+

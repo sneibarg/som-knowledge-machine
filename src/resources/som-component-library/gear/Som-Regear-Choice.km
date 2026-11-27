@@ -1,0 +1,387 @@
+;; Som-Regear-Choice.km
+;; Reserve acquisition costs, satisfy gear prerequisites, travel, acquire, equip, then finish the requested loadout.
+
+(Som-Regear-Choice has (superclasses (Thing)))
+
+(som-choice-task has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the task this acquisition serves")))
+(som-choice-source has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the candidate source; absent for equipping owned gear")))
+(som-choice-eligible has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice eligible")))
+(som-choice-eligible-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-eligible")))
+(som-choice-price has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice price")))
+(som-choice-price-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-price")))
+(som-choice-pre-task has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice pre task")))
+(som-choice-pre-task-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-pre-task")))
+(som-choice-pre-steps has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice pre steps")))
+(som-choice-pre-steps-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-pre-steps")))
+(som-choice-pre-state has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice pre state")))
+(som-choice-pre-state-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-pre-state")))
+(som-choice-route has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice route")))
+(som-choice-route-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-route")))
+(som-choice-travel has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice travel")))
+(som-choice-travel-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-travel")))
+(som-choice-prefix-count has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice prefix count")))
+(som-choice-prefix-count-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-prefix-count")))
+(som-choice-ready has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice ready")))
+(som-choice-ready-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-ready")))
+(som-choice-arrived has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice arrived")))
+(som-choice-arrived-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-arrived")))
+(som-choice-acquired has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice acquired")))
+(som-choice-acquired-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-acquired")))
+(som-choice-equipped has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice equipped")))
+(som-choice-equipped-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-equipped")))
+(som-choice-prefix has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice prefix")))
+(som-choice-prefix-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-prefix")))
+(som-choice-tail has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice tail")))
+(som-choice-tail-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-tail")))
+(som-choice-steps has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice steps")))
+(som-choice-steps-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-steps")))
+(som-choice-final has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice final")))
+(som-choice-final-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-final")))
+(som-choice-cost has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("choice cost")))
+(som-choice-cost-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-choice-cost")))
+
+(every Som-Regear-Choice has
+  (som-choice-eligible ((the som-choice-eligible-rule of Self)))
+  (som-choice-price ((the som-choice-price-rule of Self)))
+  (som-choice-pre-task ((the som-choice-pre-task-rule of Self)))
+  (som-choice-pre-steps ((the som-choice-pre-steps-rule of Self)))
+  (som-choice-pre-state ((the som-choice-pre-state-rule of Self)))
+  (som-choice-route ((the som-choice-route-rule of Self)))
+  (som-choice-travel ((the som-choice-travel-rule of Self)))
+  (som-choice-prefix-count ((the som-choice-prefix-count-rule of Self)))
+  (som-choice-ready ((the som-choice-ready-rule of Self)))
+  (som-choice-arrived ((the som-choice-arrived-rule of Self)))
+  (som-choice-acquired ((the som-choice-acquired-rule of Self)))
+  (som-choice-equipped ((the som-choice-equipped-rule of Self)))
+  (som-choice-prefix ((the som-choice-prefix-rule of Self)))
+  (som-choice-tail ((the som-choice-tail-rule of Self)))
+  (som-choice-steps ((the som-choice-steps-rule of Self)))
+  (som-choice-final ((the som-choice-final-rule of Self)))
+  (som-choice-cost ((the som-choice-cost-rule of Self)))
+
+  (som-choice-eligible-rule
+    ((if (if (has-value (the som-choice-source of Self))
+             then ((has-value (the som-choice-source of Self))
+                   and
+                    (((the som-gear-source-item of (the som-choice-source of Self)) = (the som-task-target of (the som-choice-task of Self)))
+                     or
+                      (((the som-gear-source-kind of (the som-choice-source of Self)) = mobile)
+                       and
+                        ((has-value (the som-gear-source-yields of (the som-choice-source of Self)))
+                         and
+                          (not ((the som-gear-source-yields of (the som-choice-source of Self)) = (:seq))))
+                       and
+                        ((the seq-length of (forall-seq ?member in (the som-gear-source-yields of (the som-choice-source of Self))
+                                              where (?member = (the som-task-target of (the som-choice-task of Self)))
+                                              ?member)) > 0)))
+                   and
+                    ((the som-gear-source-available of (the som-choice-source of Self)) = t)
+                   and
+                    ((the som-gear-source-permitted of (the som-choice-source of Self)) = t)
+                   and
+                    ((the som-gear-source-accessible of (the som-choice-source of Self)) = t)
+                   and
+                    (has-value (the som-gear-source-room of (the som-choice-source of Self)))
+                   and
+                    (((the som-gear-source-kind of (the som-choice-source of Self)) = room)
+                     or
+                      (((the som-gear-source-kind of (the som-choice-source of Self)) = corpse)
+                       and
+                        (has-value (the som-holder of (the som-choice-source of Self))))
+                     or
+                      (((the som-gear-source-kind of (the som-choice-source of Self)) = shop)
+                       and
+                        (has-value (the som-holder of (the som-choice-source of Self)))
+                       and
+                        (has-value (the som-gear-source-price of (the som-choice-source of Self)))
+                       and
+                        ((the som-gear-source-price of (the som-choice-source of Self)) >= 0))
+                     or
+                      (((the som-gear-source-kind of (the som-choice-source of Self)) = mobile)
+                       and
+                        (has-value (the som-holder of (the som-choice-source of Self)))
+                       and
+                        ((the som-player of (the som-holder of (the som-choice-source of Self))) = f)
+                       and
+                        ((the som-gear-source-loot-known of (the som-choice-source of Self)) = t)
+                       and
+                        ((the som-gear-source-model-known of (the som-choice-source of Self)) = t)
+                       and
+                        (has-value (the som-gear-source-requires of (the som-choice-source of Self)))
+                       and
+                        (has-value (the som-gear-source-assessed-level of (the som-choice-source of Self)))
+                       and
+                        ((the som-gear-source-assessed-level of (the som-choice-source of Self)) = (the som-level of (the som-regear-start of (the som-task-root of (the som-choice-task of Self)))))
+                       and
+                        ((((the som-gear-source-risk of (the som-choice-source of Self)) = cautious)
+                          and
+                           (((the som-regear-risk of (the som-task-root of (the som-choice-task of Self))) = cautious)
+                            or
+                             ((the som-regear-risk of (the som-task-root of (the som-choice-task of Self))) = steady)
+                            or
+                             ((the som-regear-risk of (the som-task-root of (the som-choice-task of Self))) = bold)))
+                         or
+                          (((the som-gear-source-risk of (the som-choice-source of Self)) = steady)
+                           and
+                            (((the som-regear-risk of (the som-task-root of (the som-choice-task of Self))) = steady)
+                             or
+                              ((the som-regear-risk of (the som-task-root of (the som-choice-task of Self))) = bold)))
+                         or
+                          (((the som-gear-source-risk of (the som-choice-source of Self)) = bold)
+                           and
+                            ((the som-regear-risk of (the som-task-root of (the som-choice-task of Self))) = bold)))
+                       and
+                        (not ((the seq-length of (forall-seq ?member in (if (has-value (the som-gear-defeated of (the som-task-state of (the som-choice-task of Self))))
+                                                                            then (the som-gear-defeated of (the som-task-state of (the som-choice-task of Self)))
+                                                                            else (:seq))
+                                                   where (?member = (the som-holder of (the som-choice-source of Self)))
+                                                   ?member)) > 0))
+                       and
+                        (if (has-value (the som-gear-source-yields of (the som-choice-source of Self)))
+                            then (((the seq-length of (forall-seq ?member in (the som-gear-source-yields of (the som-choice-source of Self))
+                                                        where (?member = (the som-task-target of (the som-choice-task of Self)))
+                                                        ?member)) > 0)
+                                  and
+                                   ((the seq-length of (forall-seq ?member in (the som-gear-source-yields of (the som-choice-source of Self))
+                                                         where (?member = (the som-gear-source-item of (the som-choice-source of Self)))
+                                                         ?member)) > 0))
+                            else t))))
+             else ((the seq-length of (forall-seq ?member in (the som-gear-owned of (the som-task-state of (the som-choice-task of Self)))
+                                        where (?member = (the som-task-target of (the som-choice-task of Self)))
+                                        ?member)) > 0))
+         then t
+         else nil)))
+
+  (som-choice-price-rule
+    ((if ((the som-choice-eligible of Self) = t)
+         then (if ((the som-gear-source-kind of (the som-choice-source of Self)) = shop)
+                  then (the som-gear-source-price of (the som-choice-source of Self))
+                  else 0)
+         else nil)))
+
+  (som-choice-pre-task-rule
+    ((if (((the som-choice-eligible of Self) = t)
+          and
+           (has-value (the som-choice-source of Self)))
+         then (a Som-Regear-Task with
+                (som-task-root ((the som-task-root of (the som-choice-task of Self))))
+                (som-task-goals ((if (has-value (the som-gear-source-requires of (the som-choice-source of Self)))
+                                     then (the som-gear-source-requires of (the som-choice-source of Self))
+                                     else (:seq))))
+                (som-task-state ((the som-task-state of (the som-choice-task of Self))))
+                (som-task-seen (((the som-task-seen of (the som-choice-task of Self)) append (:seq (the som-task-target of (the som-choice-task of Self))))))
+                (som-task-limit (((the som-task-limit of (the som-choice-task of Self)) - 2)))
+                (som-task-reserve (((the som-task-reserve of (the som-choice-task of Self)) + (the som-choice-price of Self)))))
+         else nil)))
+
+  (som-choice-pre-steps-rule
+    ((if ((the som-choice-eligible of Self) = t)
+         then (if (has-value (the som-choice-source of Self))
+                  then (the som-task-steps of (the som-choice-pre-task of Self))
+                  else (:seq))
+         else nil)))
+
+  (som-choice-pre-state-rule
+    ((if ((the som-choice-eligible of Self) = t)
+         then (if (has-value (the som-choice-source of Self))
+                  then (the som-task-final of (the som-choice-pre-task of Self))
+                  else (the som-task-state of (the som-choice-task of Self)))
+         else nil)))
+
+  (som-choice-route-rule
+    ((if ((has-value (the som-choice-source of Self))
+          and
+           (has-value (the som-choice-pre-state of Self))
+          and
+           ((has-value (the som-explored-room of (curr-situation)))
+            and
+             (not ((the som-explored-room of (curr-situation)) = (:seq))))
+          and
+           ((the seq-length of (forall-seq ?member in (the som-explored-room of (curr-situation))
+                                 where (?member = (the som-gear-room of (the som-choice-pre-state of Self)))
+                                 ?member)) > 0)
+          and
+           ((the seq-length of (forall-seq ?member in (the som-explored-room of (curr-situation))
+                                 where (?member = (the som-gear-source-room of (the som-choice-source of Self)))
+                                 ?member)) > 0))
+         then (the som-route-exits of (a Som-Route with
+                                        (som-route-from ((the som-gear-room of (the som-choice-pre-state of Self))))
+                                        (som-route-to ((the som-gear-source-room of (the som-choice-source of Self))))))
+         else nil)))
+
+  (som-choice-travel-rule
+    ((if ((has-value (the som-choice-source of Self))
+          and
+           (has-value (the som-choice-route of Self))
+          and
+           (not ((the som-gear-room of (the som-choice-pre-state of Self)) = (the som-gear-source-room of (the som-choice-source of Self)))))
+         then t
+         else nil)))
+
+  (som-choice-prefix-count-rule
+    ((if (has-value (the som-choice-pre-steps of Self))
+         then (if (has-value (the som-choice-source of Self))
+                  then (((the seq-length of (the som-choice-pre-steps of Self)) + 2) + (if ((the som-choice-travel of Self) = t)
+                                                                                           then 1
+                                                                                           else 0))
+                  else 1)
+         else nil)))
+
+  (som-choice-ready-rule
+    ((if (((the som-choice-eligible of Self) = t)
+          and
+           (has-value (the som-choice-pre-state of Self))
+          and
+           (has-value (the som-choice-pre-steps of Self))
+          and
+           ((not (has-value (the som-choice-source of Self)))
+            or
+             (has-value (the som-choice-route of Self)))
+          and
+           (if ((the som-gear-source-kind of (the som-choice-source of Self)) = mobile)
+               then (not ((the seq-length of (forall-seq ?member in (if (has-value (the som-gear-defeated of (the som-choice-pre-state of Self)))
+                                                                        then (the som-gear-defeated of (the som-choice-pre-state of Self))
+                                                                        else (:seq))
+                                               where (?member = (the som-holder of (the som-choice-source of Self)))
+                                               ?member)) > 0))
+               else t)
+          and
+           ((the som-choice-prefix-count of Self) <= (the som-task-limit of (the som-choice-task of Self)))
+          and
+           ((the som-gear-coins of (the som-choice-pre-state of Self)) >= ((the som-task-reserve of (the som-choice-task of Self)) + (the som-choice-price of Self))))
+         then t
+         else nil)))
+
+  (som-choice-arrived-rule
+    ((if ((the som-choice-ready of Self) = t)
+         then (if ((the som-choice-travel of Self) = t)
+                  then (a Som-Gear-Projection with
+                         (som-gear-owned ((the som-gear-owned of (the som-choice-pre-state of Self))))
+                         (som-gear-equipped ((the som-gear-equipped of (the som-choice-pre-state of Self))))
+                         (som-gear-coins ((the som-gear-coins of (the som-choice-pre-state of Self))))
+                         (som-gear-room ((the som-gear-source-room of (the som-choice-source of Self))))
+                         (som-gear-defeated ((if (has-value (the som-gear-defeated of (the som-choice-pre-state of Self)))
+                                                 then (the som-gear-defeated of (the som-choice-pre-state of Self))
+                                                 else (:seq)))))
+                  else (the som-choice-pre-state of Self))
+         else nil)))
+
+  (som-choice-acquired-rule
+    ((if ((the som-choice-ready of Self) = t)
+         then (if (has-value (the som-choice-source of Self))
+                  then (a Som-Gear-Projection with
+                         (som-gear-owned (((the som-gear-owned of (the som-choice-arrived of Self)) append (forall-seq ?loot in (if (((the som-gear-source-kind of (the som-choice-source of Self)) = mobile)
+                                                                                                                                     and
+                                                                                                                                      (has-value (the som-gear-source-yields of (the som-choice-source of Self))))
+                                                                                                                                    then (the som-gear-source-yields of (the som-choice-source of Self))
+                                                                                                                                    else (:seq (the som-task-target of (the som-choice-task of Self))))
+                                                                                                             where (not ((the seq-length of (forall-seq ?member in (the som-gear-owned of (the som-choice-arrived of Self))
+                                                                                                                                              where (?member = ?loot)
+                                                                                                                                              ?member)) > 0))
+                                                                                                             ?loot))))
+                         (som-gear-equipped ((the som-gear-equipped of (the som-choice-arrived of Self))))
+                         (som-gear-coins (((the som-gear-coins of (the som-choice-arrived of Self)) - (the som-choice-price of Self))))
+                         (som-gear-room ((the som-gear-room of (the som-choice-arrived of Self))))
+                         (som-gear-defeated ((if ((the som-gear-source-kind of (the som-choice-source of Self)) = mobile)
+                                                 then ((if (has-value (the som-gear-defeated of (the som-choice-arrived of Self)))
+                                                           then (the som-gear-defeated of (the som-choice-arrived of Self))
+                                                           else (:seq)) append (:seq (the som-holder of (the som-choice-source of Self))))
+                                                 else (if (has-value (the som-gear-defeated of (the som-choice-arrived of Self)))
+                                                          then (the som-gear-defeated of (the som-choice-arrived of Self))
+                                                          else (:seq))))))
+                  else (the som-choice-arrived of Self))
+         else nil)))
+
+  (som-choice-equipped-rule
+    ((if ((the som-choice-ready of Self) = t)
+         then (a Som-Gear-Projection with
+                (som-gear-owned ((the som-gear-owned of (the som-choice-acquired of Self))))
+                (som-gear-equipped (((forall-seq ?worn in (the som-gear-equipped of (the som-choice-acquired of Self))
+                                       where (not (((the som-worn-slot of ?worn) = (the som-worn-slot of (the som-task-target of (the som-choice-task of Self))))
+                                                   and
+                                                    ((if (has-value (the som-slot-index of ?worn))
+                                                         then (the som-slot-index of ?worn)
+                                                         else 0) = (if (has-value (the som-slot-index of (the som-task-target of (the som-choice-task of Self))))
+                                                                       then (the som-slot-index of (the som-task-target of (the som-choice-task of Self)))
+                                                                       else 0))))
+                                       ?worn) append (:seq (the som-task-target of (the som-choice-task of Self))))))
+                (som-gear-coins ((the som-gear-coins of (the som-choice-acquired of Self))))
+                (som-gear-room ((the som-gear-room of (the som-choice-acquired of Self))))
+                (som-gear-defeated ((if (has-value (the som-gear-defeated of (the som-choice-acquired of Self)))
+                                        then (the som-gear-defeated of (the som-choice-acquired of Self))
+                                        else (:seq)))))
+         else nil)))
+
+  (som-choice-prefix-rule
+    ((if ((the som-choice-ready of Self) = t)
+         then (if (has-value (the som-choice-source of Self))
+                  then ((((the som-choice-pre-steps of Self) append (if ((the som-choice-travel of Self) = t)
+                                                                        then (:seq (a Som-Gear-Step with
+                                                                                     (som-step-kind (travel))
+                                                                                     (som-step-item ((the som-task-target of (the som-choice-task of Self))))
+                                                                                     (som-step-cost (0))
+                                                                                     (som-step-before ((the som-choice-pre-state of Self)))
+                                                                                     (som-step-after ((the som-choice-arrived of Self)))
+                                                                                     (som-step-request ((the som-task-root of (the som-choice-task of Self))))
+                                                                                     (som-step-observation ((the som-regear-start of (the som-task-root of (the som-choice-task of Self)))))
+                                                                                     (som-step-source ((the som-choice-source of Self)))
+                                                                                     (som-step-route ((the som-choice-route of Self)))))
+                                                                        else (:seq))) append (:seq (a Som-Gear-Step with
+                                                                                                     (som-step-kind ((if ((the som-gear-source-kind of (the som-choice-source of Self)) = room)
+                                                                                                                         then take
+                                                                                                                         else (if ((the som-gear-source-kind of (the som-choice-source of Self)) = shop)
+                                                                                                                                  then buy
+                                                                                                                                  else (if ((the som-gear-source-kind of (the som-choice-source of Self)) = corpse)
+                                                                                                                                           then loot
+                                                                                                                                           else defeat-loot)))))
+                                                                                                     (som-step-item ((the som-task-target of (the som-choice-task of Self))))
+                                                                                                     (som-step-cost ((the som-choice-price of Self)))
+                                                                                                     (som-step-before ((the som-choice-arrived of Self)))
+                                                                                                     (som-step-after ((the som-choice-acquired of Self)))
+                                                                                                     (som-step-request ((the som-task-root of (the som-choice-task of Self))))
+                                                                                                     (som-step-observation ((the som-regear-start of (the som-task-root of (the som-choice-task of Self)))))
+                                                                                                     (som-step-source ((the som-choice-source of Self)))))) append (:seq (a Som-Gear-Step with
+                                                                                                                                                                           (som-step-kind (equip))
+                                                                                                                                                                           (som-step-item ((the som-task-target of (the som-choice-task of Self))))
+                                                                                                                                                                           (som-step-cost (0))
+                                                                                                                                                                           (som-step-before ((the som-choice-acquired of Self)))
+                                                                                                                                                                           (som-step-after ((the som-choice-equipped of Self)))
+                                                                                                                                                                           (som-step-request ((the som-task-root of (the som-choice-task of Self))))
+                                                                                                                                                                           (som-step-observation ((the som-regear-start of (the som-task-root of (the som-choice-task of Self))))))))
+                  else (:seq (a Som-Gear-Step with
+                               (som-step-kind (equip))
+                               (som-step-item ((the som-task-target of (the som-choice-task of Self))))
+                               (som-step-cost (0))
+                               (som-step-before ((the som-choice-acquired of Self)))
+                               (som-step-after ((the som-choice-equipped of Self)))
+                               (som-step-request ((the som-task-root of (the som-choice-task of Self))))
+                               (som-step-observation ((the som-regear-start of (the som-task-root of (the som-choice-task of Self))))))))
+         else nil)))
+
+  (som-choice-tail-rule
+    ((if ((the som-choice-ready of Self) = t)
+         then (a Som-Regear-Task with
+                (som-task-root ((the som-task-root of (the som-choice-task of Self))))
+                (som-task-goals ((the som-task-goals of (the som-choice-task of Self))))
+                (som-task-state ((the som-choice-equipped of Self)))
+                (som-task-seen ((the som-task-seen of (the som-choice-task of Self))))
+                (som-task-limit (((the som-task-limit of (the som-choice-task of Self)) - (the som-choice-prefix-count of Self))))
+                (som-task-reserve ((the som-task-reserve of (the som-choice-task of Self)))))
+         else nil)))
+
+  (som-choice-steps-rule
+    ((if (((the som-choice-ready of Self) = t)
+          and
+           (has-value (the som-task-steps of (the som-choice-tail of Self))))
+         then ((the som-choice-prefix of Self) append (the som-task-steps of (the som-choice-tail of Self)))
+         else nil)))
+
+  (som-choice-final-rule
+    ((if (has-value (the som-choice-steps of Self))
+         then (the som-task-final of (the som-choice-tail of Self))
+         else nil)))
+
+  (som-choice-cost-rule
+    ((if (has-value (the som-choice-final of Self))
+         then ((the som-gear-coins of (the som-task-state of (the som-choice-task of Self))) - (the som-gear-coins of (the som-choice-final of Self)))
+         else nil))))

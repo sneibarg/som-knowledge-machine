@@ -1,0 +1,19 @@
+;; Som-Gear-Source.km
+;; One observed offer or sighting. som-holder identifies the room, shop, corpse, mobile, or player.
+
+(Som-Gear-Source has (superclasses (Thing)))
+
+(som-gear-source-kind has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("room, shop, corpse, mobile, or player")))
+(som-gear-source-item has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the Som-Gear-Piece this observation describes")))
+(som-gear-source-room has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the last assessed room of this source")))
+(som-gear-source-price has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the observed purchase price in the purse currency")))
+(som-gear-source-available has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("t for an assessed available source; f for a known unavailable source")))
+(som-gear-source-permitted has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the caller permits acquisition from this source")))
+(som-gear-source-accessible has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("non-equipment access and route prerequisites have been assessed")))
+(som-gear-source-requires has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the equipment sequence required before this acquisition")))
+(som-gear-source-loot-known has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the mobile is known to yield this item; examination alone is insufficient")))
+(som-gear-source-model-known has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the stated equipment prerequisites are a supported conditional combat model")))
+(som-gear-source-assessed-level has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the character level qualifying the combat assessment")))
+(som-gear-source-risk has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the assessed acquisition risk: cautious, steady, or bold")))
+(som-gear-source-report has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("optional Som-Gear-Report provenance, not proof of availability")))
+(som-gear-source-yields has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("optional explicitly evidenced mobile loot bundle; must include the offered piece")))

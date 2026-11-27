@@ -37,6 +37,12 @@ The original source is one concatenated Lisp file, `src/knowledge-machine/km-2-5
 
 ## Maintenance
 
+- [Gear recovery strategies](gear-recovery.md): extend the existing gear package
+  with sources, observed snapshots, and conditional purchase/intermediate-mob plans.
+
+- [Gear recovery strategies](gear-recovery.md): extend the existing gear package
+  with sources, observed snapshots, and conditional purchase/intermediate-mob plans.
+
 - [Mobile experience sources](mobile-experience-sources.md): player-owned mobile
   encounters and conclusions for finding last-known experience sources.
 

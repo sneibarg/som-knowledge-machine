@@ -1,0 +1,194 @@
+;; Som-Regear-Task.km
+;; Bounded backward acquisition with explicit projected equipment and coin state.
+
+(Som-Regear-Task has (superclasses (Thing)))
+
+(som-task-root has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the root request owning this bounded task")))
+(som-task-goals has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("pieces to have equipped together")))
+(som-task-state has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the task input state")))
+(som-task-seen has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("items on the active dependency chain")))
+(som-task-limit has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("remaining transition budget")))
+(som-task-reserve has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("coins reserved for ancestors and the caller")))
+(som-task-context has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task context")))
+(som-task-context-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-context")))
+(som-task-goals-known has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task goals known")))
+(som-task-goals-known-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-goals-known")))
+(som-task-compatible has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task compatible")))
+(som-task-compatible-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-compatible")))
+(som-task-missing has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task missing")))
+(som-task-missing-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-missing")))
+(som-task-target has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task target")))
+(som-task-target-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-target")))
+(som-task-usable has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task usable")))
+(som-task-usable-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-usable")))
+(som-task-options has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task options")))
+(som-task-options-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-options")))
+(som-task-successes has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task successes")))
+(som-task-successes-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-successes")))
+(som-task-choice has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task choice")))
+(som-task-choice-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-choice")))
+(som-task-steps has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task steps")))
+(som-task-steps-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-steps")))
+(som-task-final has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("task final")))
+(som-task-final-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the rule for som-task-final")))
+
+(every Som-Regear-Task has
+  (som-task-context ((the som-task-context-rule of Self)))
+  (som-task-goals-known ((the som-task-goals-known-rule of Self)))
+  (som-task-compatible ((the som-task-compatible-rule of Self)))
+  (som-task-missing ((the som-task-missing-rule of Self)))
+  (som-task-target ((the som-task-target-rule of Self)))
+  (som-task-usable ((the som-task-usable-rule of Self)))
+  (som-task-options ((the som-task-options-rule of Self)))
+  (som-task-successes ((the som-task-successes-rule of Self)))
+  (som-task-choice ((the som-task-choice-rule of Self)))
+  (som-task-steps ((the som-task-steps-rule of Self)))
+  (som-task-final ((the som-task-final-rule of Self)))
+
+  (som-task-context-rule
+    (Self))
+
+  (som-task-goals-known-rule
+    ((if ((the seq-length of (forall-seq ?g in (the som-task-goals of Self)
+                               where (not (has-value (the som-worn-slot of ?g)))
+                               ?g)) = 0)
+         then t
+         else nil)))
+
+  (som-task-compatible-rule
+    ((if (((the som-task-goals-known of Self) = t)
+          and
+           ((the seq-length of (forall-seq ?g in (the som-task-goals of Self)
+                                 where ((the seq-length of (forall-seq ?other in (the som-task-goals of Self)
+                                                             where ((not (?other = ?g))
+                                                                    and
+                                                                     (((the som-worn-slot of ?other) = (the som-worn-slot of ?g))
+                                                                      and
+                                                                       ((if (has-value (the som-slot-index of ?other))
+                                                                            then (the som-slot-index of ?other)
+                                                                            else 0) = (if (has-value (the som-slot-index of ?g))
+                                                                                          then (the som-slot-index of ?g)
+                                                                                          else 0))))
+                                                             ?other)) > 0)
+                                 ?g)) = 0))
+         then t
+         else nil)))
+
+  (som-task-missing-rule
+    ((forall-seq ?g in (the som-task-goals of Self)
+       where (not ((the seq-length of (forall-seq ?member in (the som-gear-equipped of (the som-task-state of Self))
+                                        where (?member = ?g)
+                                        ?member)) > 0))
+       ?g)))
+
+  (som-task-target-rule
+    ((if ((has-value (the som-task-missing of Self))
+          and
+           (not ((the som-task-missing of Self) = (:seq))))
+         then (the1 of (the som-task-missing of Self))
+         else nil)))
+
+  (som-task-usable-rule
+    ((if (has-value (the som-task-target of Self))
+         then (if (((the som-gear-usable of (the som-task-target of Self)) = t)
+                   and
+                    (has-value (the som-worn-slot of (the som-task-target of Self)))
+                   and
+                    (not ((the som-level-block of (the som-task-target of Self)) = refused))
+                   and
+                    (not ((the som-alignment-block of (the som-task-target of Self)) = zapped))
+                   and
+                    ((not (has-value (the som-object-level of (the som-task-target of Self))))
+                     or
+                      ((the som-object-level of (the som-task-target of Self)) <= (the som-level of (the som-regear-start of (the som-task-root of Self)))))
+                   and
+                    (if ((has-value (the som-rejects of (the som-task-target of Self)))
+                         and
+                          (not ((the som-rejects of (the som-task-target of Self)) = (:seq))))
+                        then ((has-value (the som-alignment-side of (the som-regear-start of (the som-task-root of Self))))
+                              and
+                               (not ((the seq-length of (forall-seq ?member in (the som-rejects of (the som-task-target of Self))
+                                                          where (?member = (the som-alignment-side of (the som-regear-start of (the som-task-root of Self))))
+                                                          ?member)) > 0)))
+                        else t))
+                  then t
+                  else nil)
+         else nil)))
+
+  (som-task-options-rule
+    ((if (((the som-task-compatible of Self) = t)
+          and
+           (has-value (the som-task-target of Self))
+          and
+           ((the som-task-usable of Self) = t)
+          and
+           ((the som-task-limit of Self) >= 1))
+         then (if ((the seq-length of (forall-seq ?member in (the som-gear-owned of (the som-task-state of Self))
+                                        where (?member = (the som-task-target of Self))
+                                        ?member)) > 0)
+                  then (:seq (a Som-Regear-Choice with
+                               (som-choice-task ((the som-task-context of Self)))))
+                  else (if (((the som-task-limit of Self) >= 2)
+                            and
+                             (not ((the seq-length of (forall-seq ?member in (the som-task-seen of Self)
+                                                        where (?member = (the som-task-target of Self))
+                                                        ?member)) > 0))
+                            and
+                             ((has-value (the som-regear-observations of (the som-task-root of Self)))
+                              and
+                               (not ((the som-regear-observations of (the som-task-root of Self)) = (:seq)))))
+                           then (forall-seq ?source in (the som-regear-observations of (the som-task-root of Self))
+                                  where (((the som-gear-source-item of ?source) = (the som-task-target of Self))
+                                         or
+                                          (((the som-gear-source-kind of ?source) = mobile)
+                                           and
+                                            ((has-value (the som-gear-source-yields of ?source))
+                                             and
+                                              (not ((the som-gear-source-yields of ?source) = (:seq))))
+                                           and
+                                            ((the seq-length of (forall-seq ?member in (the som-gear-source-yields of ?source)
+                                                                  where (?member = (the som-task-target of Self))
+                                                                  ?member)) > 0)))
+                                  (a Som-Regear-Choice with
+                                    (som-choice-task ((the som-task-context of Self)))
+                                    (som-choice-source (?source))))
+                           else (:seq)))
+         else nil)))
+
+  (som-task-successes-rule
+    ((if ((has-value (the som-task-options of Self))
+          and
+           (not ((the som-task-options of Self) = (:seq))))
+         then (forall-seq ?candidate in (the som-task-options of Self)
+                where (has-value (the som-choice-steps of ?candidate))
+                ?candidate)
+         else (:seq))))
+
+  (som-task-choice-rule
+    ((if ((has-value (the som-task-successes of Self))
+          and
+           (not ((the som-task-successes of Self) = (:seq))))
+         then (the1 of (forall-seq ?candidate in (the som-task-successes of Self)
+                         where ((the seq-length of (forall-seq ?other in (the som-task-successes of Self)
+                                                     where (((the som-choice-cost of ?other) < (the som-choice-cost of ?candidate))
+                                                            or
+                                                             (((the som-choice-cost of ?other) = (the som-choice-cost of ?candidate))
+                                                              and
+                                                               ((the seq-length of (the som-choice-steps of ?other)) < (the seq-length of (the som-choice-steps of ?candidate)))))
+                                                     ?other)) = 0)
+                         ?candidate))
+         else nil)))
+
+  (som-task-steps-rule
+    ((if ((the som-task-compatible of Self) = t)
+         then (if ((the som-task-missing of Self) = (:seq))
+                  then (:seq)
+                  else (the som-choice-steps of (the som-task-choice of Self)))
+         else nil)))
+
+  (som-task-final-rule
+    ((if (has-value (the som-task-steps of Self))
+         then (if ((the som-task-steps of Self) = (:seq))
+                  then (the som-task-state of Self)
+                  else (the som-choice-final of (the som-task-choice of Self)))
+         else nil))))

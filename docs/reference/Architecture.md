@@ -187,3 +187,19 @@ Recursive Som route requests carry `som-route-context`, the root request frame.
 Each mobile route query creates a fresh root, so child caches are reused within
 that request and isolated from earlier requests or maps. A new view after a map
 edit therefore recomputes the path, including intermediate rooms.
+
+## Gear recovery components
+
+The existing `gear` package now uses source observations and confirmed equipment
+snapshots to derive conditional re-gearing strategies for `Som-Gear-Goal`
+intentions. It reuses `Som-Gear-Piece` metadata and `Som-Route`; no item package
+or separate item model is added. Planner frames keep hypothetical ownership,
+equipment, purse, and location apart from the current observed snapshot.
+Tasks account for cumulative purchases and equipped prerequisites, including
+intermediate-mob chains. All state remains in the caller's knowledge base and
+player situation. A new observation and request follows death or an attempted
+transition; the library performs no live movement, shopping, equipping, or combat.
+The [gear contracts](../../src/resources/som-component-library/gear/README.md)
+describe bounded search and evidence assumptions. Prompt and HTTP use the same
+existing evaluate entry point; interpreter and adapter implementations are
+unchanged.

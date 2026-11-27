@@ -1,6 +1,6 @@
 # Vocabulary
 
-Twenty-two classes subclass `Thing`. `Som-Agentic-Player` subclasses `Situation`. Ten relations are `N-to-1` slots whose inverse is declared beside them. The slots this library declares are `*Fluent`. A conclusion is written in one `(every ... has ...)` so two files do not store two values on the same slot. Eleven classes are skeletons. Their slots are declared, and no rule reads them.
+Twenty-nine classes subclass `Thing`. `Som-Agentic-Player` subclasses `Situation`. Twelve relations are `N-to-1` slots whose inverse is declared beside them. The slots this library declares are `*Fluent`. A conclusion is written in one `(every ... has ...)` so two files do not store two values on the same slot. Nine legacy classes remain declarations without behavior of their own; shared gear and alignment fields can support caller assessments and re-gearing.
 
 This note is the caller-facing list. Every declared frame, including the helper conclusions and every `*-rule` slot, is in [Objects](objects.md).
 
@@ -190,3 +190,20 @@ conclusions are `som-mobile-search-status`, `som-experience-mobile`,
 `som-mobile-destination`, and `som-mobile-route`. All added slots are fluent.
 The [package guide](../../../src/resources/som-component-library/mobile/README.md)
 defines their contracts and examples.
+
+## Gear observations and re-gearing
+
+`Som-Gear-Piece` adds `som-gear-usable`; the existing slot/index, level, and
+alignment fields constrain proposed equipping. `Som-Gear-Goal` adds
+`som-gear-wanted`, a sequence of desired worn pieces, and accepts `regear`
+alongside replace and legacy enchant intentions. Its stored met flag remains
+caller-owned. `Som-Gear-Source` holds one room, shop, corpse, mobile, or player
+sighting; `som-known-gear-source` indexes those observations on the player.
+`som-gear-state` selects the player's current confirmed `Som-Gear-State`.
+
+`Som-Regear-Request` accepts `som-regear-goal`, `som-regear-start`, and optional
+limit/reserve overrides. It returns status, strategy, next step, projected final
+state, cost, and observation context. `Som-Gear-Projection`, `Som-Gear-Step`,
+`Som-Regear-Task`, and `Som-Regear-Choice` hold predictions, proposals, and
+planning dependencies. All new slots are fluent. The [gear guide](../../../src/resources/som-component-library/gear/README.md)
+defines typed inputs, all public conclusion contracts, and execution limits.

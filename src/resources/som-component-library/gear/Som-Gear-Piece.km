@@ -1,6 +1,6 @@
 ;; Som-Gear-Piece.km
-;; Skeleton. One studied piece of gear.
-;; Gear.md owns the record. No rule compares, wears, or enchants it.
+;; One studied piece of gear, reused by source and re-gearing conclusions.
+;; The caller owns observations. Planning never wears or enchants a real item.
 ;; som-worn-slot is also what Som-Gear-Goal asserts for the slot it replaces.
 ;; som-rejects is a :seq of good, evil, and neutral. A report is a Som-Gear-Report.
 
@@ -26,3 +26,5 @@
 (som-alignment-known has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the identify extra-flags clause has been read")))
 (som-alignment-block has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("empty, or zapped")))
 (som-rejects has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("sides that cannot wear this piece")))
+
+(som-gear-usable has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the piece is assessed usable by this player; t, f, or unknown")))

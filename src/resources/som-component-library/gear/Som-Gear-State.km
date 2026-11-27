@@ -1,0 +1,11 @@
+;; Som-Gear-State.km
+;; Observed equipment, purse, room, som-level, and som-alignment-side. Never a prediction.
+
+(Som-Gear-State has (superclasses (Thing)))
+
+(som-gear-owned has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the complete sequence of gear currently possessed")))
+(som-gear-equipped has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the complete sequence of gear currently worn")))
+(som-gear-coins has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("coins remaining in the observed or projected purse")))
+(som-gear-room has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the observed or projected current room")))
+(som-gear-confirmed has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("t only for a caller-confirmed observation snapshot")))
+(som-gear-defeated has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("mob encounter identities already defeated in this observed or projected history")))

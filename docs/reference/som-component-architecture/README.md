@@ -24,7 +24,7 @@ Conclusion driven development builds an inference chain that automation can foll
 | `command` | The known commands that serve a goal, and the exploration attempts hunt rules 10 and 12 send. | `Som-Known-Command.km`, `som-player-command.km`, `Som-Command-Choice.km` |
 | `route` | The exits to take from one explored room to another. | `Som-Explored-Room.km`, `Som-Room-Exit.km`, `som-explored-exit.km`, `som-player-room.km`, `Som-Route.km` |
 | `mobile` | Evidence-backed experience sources and a route to a selected last-known mobile location. | `Som-Mobile.km`, `som-player-mobile.km`, `Som-Mobile-Choice.km` |
-| `gear` | The facts a later gear conclusion will read, including the side stored from score. No rule reads these components yet. | `Som-Gear-Piece.km`, `Som-Gear-Report.km`, `Som-Weapon-Skill.km`, `Som-Gear-Goal.km`, `Som-Alignment.km` |
+| `gear` | Gear observations and sources, observed equipment, and bounded re-gearing through shops, corpses, rooms, and intermediate mobs. | See the [gear guide](../../../src/resources/som-component-library/gear/README.md). |
 | `practice` | The facts a later practice conclusion will read. No rule reads these components yet. | `Som-Learned-Ability.km`, `Som-Practice-State.km`, `Som-Gain-Offer.km`, `Som-Practice-Room.km` |
 | `personality` | The disposition and one bond. No rule reads these components yet. | `Som-Personality.km`, `Som-Social-Connection.km` |
 
@@ -35,7 +35,7 @@ A later chain reads a conclusion an earlier chain wrote.
 - `som-known-command` is held by the player's situation and declared in `command/som-player-command.km`. `som-area` is held by the projection and declared in `area/som-known-area.km`.
 - `som-route-exits` is the conclusion of the route chain, written in `route/Som-Route.km`. It is the `:seq` of exits to take from one explored room to another. `som-requires-open` and `som-requires-unlock` stay on the exits in that seq.
 
-The eleven components in `gear`, `practice`, and `personality` declare slots and have no rules. A later conclusion for one of those chains is a rule in that folder, beside the facts it reads.
+Nine legacy classes retain declarations without behavior of their own. Gear piece and goal metadata now supports re-gearing rules in the same gear folder; practice and personality policies remain absent.
 
 The level chain is the chain automation follows today. The caller reads `som-licensed-directive` and sends the first attempt. The clock stays with the caller.
 
@@ -50,3 +50,15 @@ character level where it was observed. Sources -> reachable sources -> target
 preserves door prerequisites, and supplies no attack directive. The consumer
 must observe the room again before using existing consider/engage rules.
 New evidence, map, or goal requires a new view. No truth maintenance is claimed.
+
+## Gear recovery chain
+
+The [gear contracts](../../../src/resources/som-component-library/gear/README.md)
+separate studied pieces and source sightings from actual possessions. One
+confirmed player snapshot and an existing `Som-Gear-Goal` feed a fresh
+`Som-Regear-Request`. Tasks satisfy equipment prerequisites, reserve purchase
+funds, reuse routes, and project acquisition/equip transitions. Only supported
+complete strategies are returned. Examined player gear remains observation-only;
+mobile loot additionally needs an evidence-backed conditional combat model.
+After death or any attempted transition, the caller supplies a new observation
+and request. Projected equipment is never installed as actual equipment.

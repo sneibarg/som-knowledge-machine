@@ -6,7 +6,7 @@ This directory is a Knowledge Machine component library for Springs of MUD. It a
 
 ## What was added
 
-Thirty-five `.km` files, in nine folders. Each folder is one inference chain. The chains are described in the architecture note under Conclusion driven development. Twenty-two classes subclass `Thing`. `Som-Agentic-Player` subclasses `Situation`, one situation for each agentic player. Ten relations connect a view to its goal, its progress, its mobile readings, its areas, and the directive it licenses, connect a situation to the commands learned at bootstrap and to the rooms that have been explored, and connect an explored room to the exits it allows, and connect a player to remembered mobiles and a mobile to its last-known room. Eleven of the classes are skeletons: the slots are declared, and no rule reads them. The shipped `Goal` class stays an `Event`. These classes do not subclass it, and they do not reuse `has-goal`, `objective`, `agent`, `Action`, or `Planning`.
+Forty-four `.km` files, in nine folders. Each folder is one inference chain. The chains are described in the architecture note under Conclusion driven development. Twenty-nine classes subclass `Thing`. `Som-Agentic-Player` subclasses `Situation`, one situation for each agentic player. Twelve relations connect a view to its goal, its progress, its mobile readings, its areas, and the directive it licenses, connect a situation to the commands learned at bootstrap and to the rooms that have been explored, and connect an explored room to the exits it allows, and connect a player to remembered mobiles and a mobile to its last-known room, and a player to gear-source observations and its current confirmed gear state. Nine legacy classes retain declarations without behavior of their own. The gear package now reads the existing piece and goal vocabulary, including shared alignment metadata. The shipped `Goal` class stays an `Event`. These classes do not subclass it, and they do not reuse `has-goal`, `objective`, `agent`, `Action`, or `Planning`.
 
 | File | What it declares |
 | --- | --- |
@@ -35,16 +35,16 @@ Thirty-five `.km` files, in nine folders. Each folder is one inference chain. Th
 | `mobile/som-player-mobile.km` | The player situation's ordered `som-known-mobile` sequence. |
 | `mobile/Som-Mobile-Choice.km` | Experience sources, evidence gaps, reachable sources, target, destination, and route on the goal view. |
 
-The eleven files in `gear`, `practice`, and `personality` are the skeleton. Each declares one class and its slots. No rule reads them.
+The [gear package](gear/README.md) now includes source observations, confirmed snapshots, and conditional re-gearing strategies. Nine legacy classes across gear, practice, and personality retain declarations without behavior of their own.
 
 | File | What it declares |
 | --- | --- |
 | `personality/Som-Social-Connection.km` | One bond: standing, a pending reply, and company. |
 | `personality/Som-Personality.km` | Bearing, company, and manner. |
-| `gear/Som-Gear-Piece.km` | One studied piece. `som-worn-slot` is the slot a gear goal names too. |
+| `gear/Som-Gear-Piece.km` | One studied piece, its slot, and player-specific usability evidence. |
 | `gear/Som-Gear-Report.km` | What one player said about a piece. |
 | `gear/Som-Weapon-Skill.km` | One weapon skill and its percent. |
-| `gear/Som-Gear-Goal.km` | Replace or enchant, and whether that goal is met. |
+| `gear/Som-Gear-Goal.km` | Replace/regear loadout intentions and legacy enchant/acknowledgment fields. |
 | `practice/Som-Learned-Ability.km` | One practiced skill or spell. |
 | `practice/Som-Practice-State.km` | Class, trains, and the stale flags. |
 | `practice/Som-Gain-Offer.km` | One `gain list` row. |
@@ -67,7 +67,7 @@ clojure -M:repl
 KM> (load-lib "src/resources/som-component-library" :silent t)
 ```
 
-`:silentp t` is the same flag. The answer is the list of thirty-five pathname-names. `:errors` is empty when the directory loads.
+`:silentp t` is the same flag. The answer is the list of forty-four pathname-names. `:errors` is empty when the directory loads.
 
 `startup.sh` and `startup.cmd`, from the repository root, start the prompt and load the shipped library and then this directory. The shipped library takes several minutes.
 
@@ -237,7 +237,7 @@ Closed words such as `behind`, `on`, `open`, `cautious`, `steady`, and `bold` ar
 
 ## What the components leave out
 
-The engine has already applied four safety rules before this view is asked: danger at `play.flee_hp`, leave a threat the engine did not engage, stand after a position refusal, and an owed reply. A personality yield and a gear strategy are absent. `som-gear-gate` is read only by hunt rule 1. Hunt rules 10 and 12 send `som-exploration-attempt`. The eleven skeleton classes are not read by the level question, the area choice, or the command choice. The area choice does not change hunt rule 3.
+The engine has already applied four safety rules before this view is asked: danger at `play.flee_hp`, leave a threat the engine did not engage, stand after a position refusal, and an owed reply. A personality yield is absent. The separate gear query derives re-gearing strategies; the level hunt does not automatically select them. `som-gear-gate` is read only by hunt rule 1. Hunt rules 10 and 12 send `som-exploration-attempt`. The legacy declaration-only classes are not interpreted as new level, area, or command policies. The area choice does not change hunt rule 3.
 
 Rules 5 and 6 wait until a player proposal names the fight marker. `som-opponent-outlook` stays empty, and no rule reads it. A fighting view that misses rule 4 does not hold and does not flee for an opponent. A survey reading is rule 8. An idle fighting view with no mobiles and no exits is rule 14.
 
@@ -256,3 +256,12 @@ outdated observations, reuses the explored-room route chain, and selects a
 reachable last-known location by observed yield and encounter order. Remembered
 mobiles do not replace fresh `som-reading` observations or the hunt policy.
 The package guide documents assertions, conclusion contracts, validity, and tests.
+
+## Gear sources and recovery
+
+The [gear guide](gear/README.md) documents room pickups, purchases, corpse loot,
+and observations on players and mobiles. A fresh request can derive a bounded
+strategy through purchases and intermediate mobs while accounting for equipped
+prerequisites and one purse. Planning uses hypothetical states, leaves observed
+ownership unchanged, and reconsiders loss after death from a new confirmed
+snapshot. Examine-only sightings do not grant acquisition or combat permission.

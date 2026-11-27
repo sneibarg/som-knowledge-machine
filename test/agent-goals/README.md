@@ -148,7 +148,7 @@ loop carrying every output into the next event.
 
 ## Required inputs and coverage still absent
 
-The tests load the 35 `.km` files under `src/resources/som-component-library`,
+The tests load the 44 `.km` files under `src/resources/som-component-library`,
 including its nine inference-chain folders, and the shipped core `Goal.km`.
 The library composition checks assert the vocabulary, inverses, fluent slots,
 and independence from the core Goal/Event model. The gear, practice, and
@@ -164,7 +164,7 @@ licensed action to all its supporting conclusions, or execution feedback after
 command success, refusal, or failure. Route tests exercise a cycle and a changed
 map with a new route; they do not prove termination for every recursive input.
 The suite does not verify repeated-attempt policy or externally observed
-completion. Gear, practice, and social goals have no behavioral scenarios here.
+completion. Gear recovery scenarios are documented below. Practice and social goals still have no behavioral scenarios here.
 
 For a new agent goal, state the intention and consumer first, then define each
 required conclusion using all eight contract elements in the reference document.
@@ -200,3 +200,43 @@ locations, target selection, and routes. Run
 The selected target is a last-known source to investigate, not permission to
 attack. Tests do not execute movement/combat or prove a measured future gain.
 The caller supplies fresh observations and reconsideration after action.
+
+## Gear recovery strategies
+
+`som/km/gear_recovery_test.clj` (`som.km.gear-recovery-test`) tests the
+[gear contracts](../../src/resources/som-component-library/gear/README.md).
+Run `clojure -M:test -n som.km.gear-recovery-test`.
+The scenarios cover sources, conditional planning, money/equipment transitions,
+death, incomplete evidence, bounded refusals, isolation, and both adapters:
+
+- `a-room-piece-produces-a-proposal-without-changing-observed-ownership`.
+- `a-purchase-debits-the-projected-purse-only`.
+- `a-shop-and-intermediate-mob-chain-enables-stronger-gear`.
+- `corpse-loot-is-distinct-from-examined-player-and-mobile-equipment`.
+- `prices-and-the-emergency-reserve-bound-purchases`.
+- `cumulative-purchases-use-one-purse-and-select-supported-cheaper-options`.
+- `shared-intermediate-gear-is-not-purchased-twice-and-conflicting-weapons-are-reequipped`.
+- `ancestors-reserve-their-purchase-cost-while-obtaining-prerequisites`.
+- `current-gear-and-empty-goals-have-valid-empty-or-equip-only-strategies`.
+- `incompatible-final-slots-are-rejected-but-paired-slots-are-distinct`.
+- `unusable-or-restricted-gear-does-not-become-a-viable-target`.
+- `cycles-and-transition-limits-produce-bounded-refusals`.
+- `known-unavailable-or-unpermitted-sources-do-not-authorize-acquisition`.
+- `mobile-loot-requires-current-level-models-allowed-risk-and-a-nonplayer`.
+- `travel-reuses-the-route-chain-and-updates-only-the-projected-room`.
+- `death-discards-lost-equipment-and-replans-through-an-affordable-intermediate`.
+- `incomplete-inconsistent-and-unsupported-inputs-have-domain-results`.
+- `player-situations-isolate-sources-purses-and-regearing-results`.
+- `prompt-and-http-expose-the-same-regearing-conclusion`.
+- `contradictory-worn-slots-and-unknown-target-slots-have-distinct-results`.
+- `predicted-equipment-is-not-a-confirmed-observation`.
+- `one-mob-cannot-be-defeated-twice-but-an-evidenced-loot-bundle-can-supply-two-pieces`.
+- `a-prerequisite-fight-cannot-consume-the-mob-needed-by-its-parent`.
+- `any-explicitly-evidenced-piece-in-a-loot-bundle-can-serve-the-goal`.
+
+Every engine result is checked for reasoning errors. Strategies and projected
+results are checked separately from unchanged observed ownership/purse. The
+multi-mob example requires a shop weapon and successive intermediate weapons;
+the multi-goal example reuses and re-equips one purchased prerequisite. These
+tests do not claim live combat success, global optimality, or exhaustive search
+over every prerequisite history.

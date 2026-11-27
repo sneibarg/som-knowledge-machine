@@ -1,0 +1,14 @@
+;; Som-Gear-Step.km
+;; A proposal and its predicted result. Sending it does not establish success.
+
+(Som-Gear-Step has (superclasses (Thing)))
+
+(som-step-kind has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("travel, take, buy, loot, defeat-loot, or equip")))
+(som-step-item has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the gear piece this proposed step serves")))
+(som-step-source has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the source observation supporting this proposal")))
+(som-step-route has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the exit sequence attached to a travel proposal")))
+(som-step-cost has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("coins spent by this step")))
+(som-step-before has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the observed or hypothetical state before the step")))
+(som-step-after has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the hypothetical state if the step succeeds")))
+(som-step-request has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the re-gearing request owning this proposal")))
+(som-step-observation has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent))  (text-gloss ("the confirmed snapshot from which this strategy was derived")))

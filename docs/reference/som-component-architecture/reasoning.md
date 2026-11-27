@@ -113,7 +113,7 @@ The category that contains a slash is the string `"information / communication"`
 
 Rules 5 and 6 are the opponent branches in the strategy notes. They are not encoded. `som-opponent-outlook` stays empty, and a missing consider is still rule 8, including while fighting. An idle fighting view with a clear or empty health line, no mobiles, and no exits is rule 14.
 
-The header of `Som-Level-Directive.km` names the four engine rules that have already run: danger at `play.flee_hp`, leave a threat the engine did not engage, stand after a position refusal, and an owed reply. A personality yield and a gear strategy are absent here. Rules 10 and 12 read the commands stored on the current situation.
+The header of `Som-Level-Directive.km` names the four engine rules that have already run: danger at `play.flee_hp`, leave a threat the engine did not engage, stand after a position refusal, and an owed reply. A personality yield is absent here. Re-gearing is a separate gear request; it is not automatically selected by the level hunt. Rules 10 and 12 read the commands stored on the current situation.
 
 ## Explored areas
 
@@ -164,3 +164,27 @@ and `som-mobile-route` identify where to look and the exits to get there.
 Same-room routes are an empty sequence. An absent path is a different outcome.
 The [package guide](../../../src/resources/som-component-library/mobile/README.md)
 documents contexts, absence, validity, and acceptance examples.
+
+## Conditional re-gearing
+
+One current confirmed equipment/purse snapshot and an explicit wanted loadout
+support a bounded backward acquisition strategy. Carried usable gear can be
+equipped directly. Other pieces require an available, permitted, assessed
+source. Mobile sources require known loot and an equipment-prerequisite model
+qualified by character level and acquisition risk; seeing worn gear is not
+that evidence. Player sightings are never acquisition sources.
+
+Each choice first satisfies its gear prerequisites, reserving its purchase cost
+and the caller's coin reserve. It then routes from the resulting projected room,
+acquires the piece, equips it with slot replacement, and finishes the wanted
+loadout. Shared owned prerequisites are reused. All purchases debit the same
+projected purse. Re-equipping preserves carried ownership. Circular unowned
+requirements are rejected and a transition budget bounds recursion.
+
+Among supported complete choices, coin cost ranks first, then transition count,
+then source order. A chosen prerequisite history is not exhaustively recombined
+with every alternative continuation. No supported strategy under this policy
+therefore does not prove impossibility or global optimality. The
+[gear guide](../../../src/resources/som-component-library/gear/README.md)
+specifies outcome meanings, assumptions, fresh requests after death and refusal,
+and the separation of projections from observations.

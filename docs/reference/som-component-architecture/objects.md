@@ -2,7 +2,7 @@
 
 Every frame the Springs of MUD component library declares. The directory is `src/resources/som-component-library`. The files are grouped by inference chain. Those folders are listed in [the architecture note](README.md). How to load it and how to ask one question are in the [library README](../../../src/resources/som-component-library/README.md). Pace, the notch, and the hunt are also summarized in [Reasoning](reasoning.md). This note names each frame, who writes it, and what a read returns.
 
-The library declares 23 classes and 257 slots. Eleven of those classes are skeletons. Their slots are declared, and no rule reads them.
+The library declares 30 classes and 384 slots. Nine legacy classes remain declarations without behavior of their own. Gear pieces and goals now support the re-gearing query.
 
 `Thing`, `Slot`, `N-to-1`, `*Fluent`, `Situation`, and `text-gen` are built in. They are named here only where a class rule stores a value on `text-gen`.
 
@@ -241,7 +241,7 @@ Declared in `Som-Level-Directive.km` and stored on `Som-Goal-View` by the second
 
 Rule 12's attempts are `(:args travel movement recall "")` and then `(:args survey "information / communication" where "")` when both commands are known. The category that contains a slash is the string `"information / communication"`. The stored command name `where` is the string `"where"`. The attempt verb stays the symbol `where`. Rule 11's look attempt is `(:args survey objects look "")`. Rule 9's attempt is `(:args engage combat kill <name>)`. Rule 8's attempt is `(:args survey "information / communication" consider <name>)`. Rule 10's argument is `""`. The preference is the direction, and the direction is included only when it is a known allowed movement command.
 
-The header of `Som-Level-Directive.km` names four engine rules that have already run: danger at `play.flee_hp`, leave a threat the engine did not engage, stand after a position refusal, and an owed reply. A personality yield and a gear strategy have no slot here. `som-gear-gate` is read only by rule 1. Rules 10 and 12 read `som-exploration-attempt`.
+The header of `Som-Level-Directive.km` names four engine rules that have already run: danger at `play.flee_hp`, leave a threat the engine did not engage, stand after a position refusal, and an owed reply. A personality yield has no slot here; re-gearing is a separate query in the gear package. `som-gear-gate` is read only by rule 1. Rules 10 and 12 read `som-exploration-attempt`.
 
 A fighting view that misses rule 4 continues through the later rules. A missing consider is rule 8, including while fighting. An idle fighting view with a clear or empty health line, no mobiles, and no exits is rule 14. `som-opponent-outlook` has no reader.
 
@@ -435,3 +435,146 @@ The seven conclusion/rule pairs extend `Som-Goal-View` in one `every` form.
 Contracts and verification are in the [mobile guide](../../../src/resources/som-component-library/mobile/README.md).
 Shared inputs `som-mobile-name` and `som-player` remain declared once in the
 level reading component.
+
+## Gear recovery additions
+
+The gear package extends the existing piece and goal representations. New Thing
+subclasses are `Som-Gear-Source`, `Som-Gear-State`, `Som-Gear-Projection`,
+`Som-Gear-Step`, `Som-Regear-Request`, `Som-Regear-Task`, and
+`Som-Regear-Choice`. New player relations are `som-known-gear-source` /
+`som-known-gear-source-of` (one sequence, range Som-Gear-Source) and
+`som-gear-state` / `som-gear-state-of` (current snapshot, range Som-Gear-State).
+All additions are fluent N-to-1 slots. Existing description, worn slot/index,
+level, alignment, holder, risk, and report vocabulary is reused. See the
+[gear guide](../../../src/resources/som-component-library/gear/README.md)
+for public contracts, policy and uncertainty limits, and examples.
+
+| Slot | Declaring file | Meaning |
+| --- | --- | --- |
+| `som-gear-source-kind` | `Som-Gear-Source.km` | room, shop, corpse, mobile, or player. |
+| `som-gear-source-item` | `Som-Gear-Source.km` | the Som-Gear-Piece this observation describes. |
+| `som-gear-source-room` | `Som-Gear-Source.km` | the last assessed room of this source. |
+| `som-gear-source-price` | `Som-Gear-Source.km` | the observed purchase price in the purse currency. |
+| `som-gear-source-available` | `Som-Gear-Source.km` | t for an assessed available source; f for a known unavailable source. |
+| `som-gear-source-permitted` | `Som-Gear-Source.km` | the caller permits acquisition from this source. |
+| `som-gear-source-accessible` | `Som-Gear-Source.km` | non-equipment access and route prerequisites have been assessed. |
+| `som-gear-source-requires` | `Som-Gear-Source.km` | the equipment sequence required before this acquisition. |
+| `som-gear-source-loot-known` | `Som-Gear-Source.km` | the mobile is known to yield this item; examination alone is insufficient. |
+| `som-gear-source-model-known` | `Som-Gear-Source.km` | the stated equipment prerequisites are a supported conditional combat model. |
+| `som-gear-source-assessed-level` | `Som-Gear-Source.km` | the character level qualifying the combat assessment. |
+| `som-gear-source-risk` | `Som-Gear-Source.km` | the assessed acquisition risk: cautious, steady, or bold. |
+| `som-gear-source-report` | `Som-Gear-Source.km` | optional Som-Gear-Report provenance, not proof of availability. |
+| `som-gear-source-yields` | `Som-Gear-Source.km` | optional explicitly evidenced mobile loot bundle; must include the offered piece. |
+| `som-gear-owned` | `Som-Gear-State.km` | the complete sequence of gear currently possessed. |
+| `som-gear-equipped` | `Som-Gear-State.km` | the complete sequence of gear currently worn. |
+| `som-gear-coins` | `Som-Gear-State.km` | coins remaining in the observed or projected purse. |
+| `som-gear-room` | `Som-Gear-State.km` | the observed or projected current room. |
+| `som-gear-confirmed` | `Som-Gear-State.km` | t only for a caller-confirmed observation snapshot. |
+| `som-gear-defeated` | `Som-Gear-State.km` | mob encounter identities already defeated in this observed or projected history. |
+| `som-step-kind` | `Som-Gear-Step.km` | travel, take, buy, loot, defeat-loot, or equip. |
+| `som-step-item` | `Som-Gear-Step.km` | the gear piece this proposed step serves. |
+| `som-step-source` | `Som-Gear-Step.km` | the source observation supporting this proposal. |
+| `som-step-route` | `Som-Gear-Step.km` | the exit sequence attached to a travel proposal. |
+| `som-step-cost` | `Som-Gear-Step.km` | coins spent by this step. |
+| `som-step-before` | `Som-Gear-Step.km` | the observed or hypothetical state before the step. |
+| `som-step-after` | `Som-Gear-Step.km` | the hypothetical state if the step succeeds. |
+| `som-step-request` | `Som-Gear-Step.km` | the re-gearing request owning this proposal. |
+| `som-step-observation` | `Som-Gear-Step.km` | the confirmed snapshot from which this strategy was derived. |
+| `som-regear-goal` | `Som-Regear-Request.km` | the Som-Gear-Goal this request serves. |
+| `som-regear-start` | `Som-Regear-Request.km` | the current confirmed Som-Gear-State. |
+| `som-regear-limit-in` | `Som-Regear-Request.km` | optional transition budget; default 16. |
+| `som-regear-reserve-in` | `Som-Regear-Request.km` | optional coins to leave unspent; default zero. |
+| `som-regear-context` | `Som-Regear-Request.km` | regear context. |
+| `som-regear-context-rule` | `Som-Regear-Request.km` | the rule for som-regear-context. |
+| `som-regear-risk` | `Som-Regear-Request.km` | regear risk. |
+| `som-regear-risk-rule` | `Som-Regear-Request.km` | the rule for som-regear-risk. |
+| `som-regear-limit` | `Som-Regear-Request.km` | regear limit. |
+| `som-regear-limit-rule` | `Som-Regear-Request.km` | the rule for som-regear-limit. |
+| `som-regear-reserve` | `Som-Regear-Request.km` | regear reserve. |
+| `som-regear-reserve-rule` | `Som-Regear-Request.km` | the rule for som-regear-reserve. |
+| `som-regear-observations` | `Som-Regear-Request.km` | regear observations. |
+| `som-regear-observations-rule` | `Som-Regear-Request.km` | the rule for som-regear-observations. |
+| `som-regear-input-status` | `Som-Regear-Request.km` | regear input status. |
+| `som-regear-input-status-rule` | `Som-Regear-Request.km` | the rule for som-regear-input-status. |
+| `som-regear-task` | `Som-Regear-Request.km` | regear task. |
+| `som-regear-task-rule` | `Som-Regear-Request.km` | the rule for som-regear-task. |
+| `som-regear-status` | `Som-Regear-Request.km` | regear status. |
+| `som-regear-status-rule` | `Som-Regear-Request.km` | the rule for som-regear-status. |
+| `som-regear-strategy` | `Som-Regear-Request.km` | regear strategy. |
+| `som-regear-strategy-rule` | `Som-Regear-Request.km` | the rule for som-regear-strategy. |
+| `som-regear-next-step` | `Som-Regear-Request.km` | regear next step. |
+| `som-regear-next-step-rule` | `Som-Regear-Request.km` | the rule for som-regear-next-step. |
+| `som-regear-final-state` | `Som-Regear-Request.km` | regear final state. |
+| `som-regear-final-state-rule` | `Som-Regear-Request.km` | the rule for som-regear-final-state. |
+| `som-regear-cost` | `Som-Regear-Request.km` | regear cost. |
+| `som-regear-cost-rule` | `Som-Regear-Request.km` | the rule for som-regear-cost. |
+| `som-task-root` | `Som-Regear-Task.km` | the root request owning this bounded task. |
+| `som-task-goals` | `Som-Regear-Task.km` | pieces to have equipped together. |
+| `som-task-state` | `Som-Regear-Task.km` | the task input state. |
+| `som-task-seen` | `Som-Regear-Task.km` | items on the active dependency chain. |
+| `som-task-limit` | `Som-Regear-Task.km` | remaining transition budget. |
+| `som-task-reserve` | `Som-Regear-Task.km` | coins reserved for ancestors and the caller. |
+| `som-task-context` | `Som-Regear-Task.km` | task context. |
+| `som-task-context-rule` | `Som-Regear-Task.km` | the rule for som-task-context. |
+| `som-task-goals-known` | `Som-Regear-Task.km` | task goals known. |
+| `som-task-goals-known-rule` | `Som-Regear-Task.km` | the rule for som-task-goals-known. |
+| `som-task-compatible` | `Som-Regear-Task.km` | task compatible. |
+| `som-task-compatible-rule` | `Som-Regear-Task.km` | the rule for som-task-compatible. |
+| `som-task-missing` | `Som-Regear-Task.km` | task missing. |
+| `som-task-missing-rule` | `Som-Regear-Task.km` | the rule for som-task-missing. |
+| `som-task-target` | `Som-Regear-Task.km` | task target. |
+| `som-task-target-rule` | `Som-Regear-Task.km` | the rule for som-task-target. |
+| `som-task-usable` | `Som-Regear-Task.km` | task usable. |
+| `som-task-usable-rule` | `Som-Regear-Task.km` | the rule for som-task-usable. |
+| `som-task-options` | `Som-Regear-Task.km` | task options. |
+| `som-task-options-rule` | `Som-Regear-Task.km` | the rule for som-task-options. |
+| `som-task-successes` | `Som-Regear-Task.km` | task successes. |
+| `som-task-successes-rule` | `Som-Regear-Task.km` | the rule for som-task-successes. |
+| `som-task-choice` | `Som-Regear-Task.km` | task choice. |
+| `som-task-choice-rule` | `Som-Regear-Task.km` | the rule for som-task-choice. |
+| `som-task-steps` | `Som-Regear-Task.km` | task steps. |
+| `som-task-steps-rule` | `Som-Regear-Task.km` | the rule for som-task-steps. |
+| `som-task-final` | `Som-Regear-Task.km` | task final. |
+| `som-task-final-rule` | `Som-Regear-Task.km` | the rule for som-task-final. |
+| `som-choice-task` | `Som-Regear-Choice.km` | the task this acquisition serves. |
+| `som-choice-source` | `Som-Regear-Choice.km` | the candidate source; absent for equipping owned gear. |
+| `som-choice-eligible` | `Som-Regear-Choice.km` | choice eligible. |
+| `som-choice-eligible-rule` | `Som-Regear-Choice.km` | the rule for som-choice-eligible. |
+| `som-choice-price` | `Som-Regear-Choice.km` | choice price. |
+| `som-choice-price-rule` | `Som-Regear-Choice.km` | the rule for som-choice-price. |
+| `som-choice-pre-task` | `Som-Regear-Choice.km` | choice pre task. |
+| `som-choice-pre-task-rule` | `Som-Regear-Choice.km` | the rule for som-choice-pre-task. |
+| `som-choice-pre-steps` | `Som-Regear-Choice.km` | choice pre steps. |
+| `som-choice-pre-steps-rule` | `Som-Regear-Choice.km` | the rule for som-choice-pre-steps. |
+| `som-choice-pre-state` | `Som-Regear-Choice.km` | choice pre state. |
+| `som-choice-pre-state-rule` | `Som-Regear-Choice.km` | the rule for som-choice-pre-state. |
+| `som-choice-route` | `Som-Regear-Choice.km` | choice route. |
+| `som-choice-route-rule` | `Som-Regear-Choice.km` | the rule for som-choice-route. |
+| `som-choice-travel` | `Som-Regear-Choice.km` | choice travel. |
+| `som-choice-travel-rule` | `Som-Regear-Choice.km` | the rule for som-choice-travel. |
+| `som-choice-prefix-count` | `Som-Regear-Choice.km` | choice prefix count. |
+| `som-choice-prefix-count-rule` | `Som-Regear-Choice.km` | the rule for som-choice-prefix-count. |
+| `som-choice-ready` | `Som-Regear-Choice.km` | choice ready. |
+| `som-choice-ready-rule` | `Som-Regear-Choice.km` | the rule for som-choice-ready. |
+| `som-choice-arrived` | `Som-Regear-Choice.km` | choice arrived. |
+| `som-choice-arrived-rule` | `Som-Regear-Choice.km` | the rule for som-choice-arrived. |
+| `som-choice-acquired` | `Som-Regear-Choice.km` | choice acquired. |
+| `som-choice-acquired-rule` | `Som-Regear-Choice.km` | the rule for som-choice-acquired. |
+| `som-choice-equipped` | `Som-Regear-Choice.km` | choice equipped. |
+| `som-choice-equipped-rule` | `Som-Regear-Choice.km` | the rule for som-choice-equipped. |
+| `som-choice-prefix` | `Som-Regear-Choice.km` | choice prefix. |
+| `som-choice-prefix-rule` | `Som-Regear-Choice.km` | the rule for som-choice-prefix. |
+| `som-choice-tail` | `Som-Regear-Choice.km` | choice tail. |
+| `som-choice-tail-rule` | `Som-Regear-Choice.km` | the rule for som-choice-tail. |
+| `som-choice-steps` | `Som-Regear-Choice.km` | choice steps. |
+| `som-choice-steps-rule` | `Som-Regear-Choice.km` | the rule for som-choice-steps. |
+| `som-choice-final` | `Som-Regear-Choice.km` | choice final. |
+| `som-choice-final-rule` | `Som-Regear-Choice.km` | the rule for som-choice-final. |
+| `som-choice-cost` | `Som-Regear-Choice.km` | choice cost. |
+| `som-choice-cost-rule` | `Som-Regear-Choice.km` | the rule for som-choice-cost. |
+| `som-known-gear-source` | `som-player-gear-source.km` | the gear source observations indexed by this player. |
+| `som-known-gear-source-of` | `som-player-gear-source.km` | the inverse of som-known-gear-source. |
+| `som-gear-state` | `som-player-gear-state.km` | the current confirmed equipment and purse snapshot. |
+| `som-gear-state-of` | `som-player-gear-state.km` | the inverse of som-gear-state. |
+| `som-gear-usable` | `Som-Gear-Piece.km` | Affirmative player-specific usability assessment. |
+| `som-gear-wanted` | `Som-Gear-Goal.km` | Explicit desired worn loadout. |
