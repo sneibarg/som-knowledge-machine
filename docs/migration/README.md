@@ -35,6 +35,11 @@ The original source is one concatenated Lisp file, `src/knowledge-machine/km-2-5
 | 26 | [The small texts](26-the-small-texts.md) | A number below 1 uses the Lisp exponent width. The extra statistics parenthesis stays. `(version)` prints the banner and answers `(t)`. |
 | 27 | [Packaged component libraries](27-packaged-component-libraries.md) | `load-lib` reads indexed classpath resources, including libraries nested inside a Spring Boot JAR. |
 
+## Maintenance
+
+- [Test organization](test-organization.md): component-library, inference-engine,
+  and agent-goal suites with documented conclusion contracts.
+
 ## Still ahead
 
 Step 26 locks the small texts. The numbered wrap-up list in [the outcome review](../port-outcome-review.md) is complete. That review's corpus comparison is the acceptance condition for the port. The earlier order came from the call graph in [the migration plan](plan.md). That note also records where Clojure will not produce the same result as the Lisp. `loadme.lisp` is the Lisp load order. It is not this list.

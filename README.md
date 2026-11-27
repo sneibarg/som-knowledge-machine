@@ -12,6 +12,10 @@ The prompt and the HTTP service are two fronts on one engine, `som.km.engine`. N
 clojure -M:test
 ```
 
+See [test/README.md](test/README.md) for component-library, inference-engine,
+and agent-goal suites and commands. The [agent guide](test/agent-goals/README.md)
+documents conclusion contracts, selection rules, and coverage limits.
+
 ## Maven library
 
 Run these commands from the repository root with the Clojure CLI and the project JDK.
