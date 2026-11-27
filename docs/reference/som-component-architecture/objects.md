@@ -2,7 +2,7 @@
 
 Every frame the Springs of MUD component library declares. The directory is `src/resources/som-component-library`. The files are grouped by inference chain. Those folders are listed in [the architecture note](README.md). How to load it and how to ask one question are in the [library README](../../../src/resources/som-component-library/README.md). Pace, the notch, and the hunt are also summarized in [Reasoning](reasoning.md). This note names each frame, who writes it, and what a read returns.
 
-The library declares 22 classes and 233 slots. Eleven of those classes are skeletons. Their slots are declared, and no rule reads them.
+The library declares 23 classes and 257 slots. Eleven of those classes are skeletons. Their slots are declared, and no rule reads them.
 
 `Thing`, `Slot`, `N-to-1`, `*Fluent`, `Situation`, and `text-gen` are built in. They are named here only where a class rule stores a value on `text-gen`.
 
@@ -323,7 +323,7 @@ The caller asserts the direction, the far room when it is known, and either flag
 
 ## Route conclusions on Som-Route
 
-The caller asserts `som-route-from` and `som-route-to`. `som-route-found` and `som-route-exits` are conclusions. Their paired slots are `som-route-found-rule` and `som-route-exits-rule`. Both conclusion slots carry `dont-cache-values` `t`. After the exits change, the caller asks with a new `Som-Route`. Replacing the room's exit seq uses `now-has`.
+The caller asserts `som-route-from` and `som-route-to`. `som-route-found` and `som-route-exits` are conclusions. Their paired slots are `som-route-found-rule` and `som-route-exits-rule`. Both conclusion slots carry `dont-cache-values` `t`. Internal fluent N-to-1 slots `som-route-context-in`, `som-route-context`, and `som-route-context-rule` scope recursive requests. The context rule returns the supplied root context, or Self for a root request. Child lookup includes the derived context, recognizing the root for cycle detection and keeping cached results within one search. After the exits change, the caller asks with a new `Som-Route`. Replacing the room's exit seq uses `now-has`.
 
 | Slot | Writer | Gloss | What a read returns |
 | --- | --- | --- | --- |
@@ -398,3 +398,40 @@ Each class stores `(superclasses (Thing))`. The caller asserts every slot. A rea
 | `Som-Alignment` | `som-alignment-word` | the word score printed |
 | `Som-Alignment` | `som-alignment-integer` | the integer score printed, when the line had one |
 | `Som-Alignment` | `som-alignment-side` | good, evil, or neutral |
+
+## Mobile package additions
+
+`Som-Mobile` subclasses `Thing`. The new relations are `som-known-mobile` /
+`som-known-mobile-of` (range `Som-Mobile`, held by the player's situation) and
+`som-mobile-last-room` / `som-mobile-last-room-of` (range `Som-Explored-Room`,
+held by the encounter). Forward relations are N-to-1, original slots, with
+domain Thing; inverses are declared beside them. Every added slot is fluent.
+The seven conclusion/rule pairs extend `Som-Goal-View` in one `every` form.
+
+| Slot | Owner and meaning |
+| --- | --- |
+| `som-mobile-search-from` | Caller-owned search origin on the view. |
+| `som-mobile-search-status` | Public conclusion on Som-Goal-View; see the mobile contract. |
+| `som-mobile-search-status-rule` | Rule expression for its public conclusion. |
+| `som-experience-mobile` | Public conclusion on Som-Goal-View; see the mobile contract. |
+| `som-experience-mobile-rule` | Rule expression for its public conclusion. |
+| `som-mobile-needs-evidence` | Public conclusion on Som-Goal-View; see the mobile contract. |
+| `som-mobile-needs-evidence-rule` | Rule expression for its public conclusion. |
+| `som-reachable-mobile` | Public conclusion on Som-Goal-View; see the mobile contract. |
+| `som-reachable-mobile-rule` | Rule expression for its public conclusion. |
+| `som-mobile-target` | Public conclusion on Som-Goal-View; see the mobile contract. |
+| `som-mobile-target-rule` | Rule expression for its public conclusion. |
+| `som-mobile-destination` | Public conclusion on Som-Goal-View; see the mobile contract. |
+| `som-mobile-destination-rule` | Rule expression for its public conclusion. |
+| `som-mobile-route` | Public conclusion on Som-Goal-View; see the mobile contract. |
+| `som-mobile-route-rule` | Rule expression for its public conclusion. |
+| `som-mobile-experience` | Observed experience gain. |
+| `som-mobile-experience-level` | Character level qualifying that gain. |
+| `som-mobile-last-room` | Last observed room. |
+| `som-mobile-last-room-of` | Inverse of the room relation. |
+| `som-known-mobile` | Caller-owned encounter sequence on the player situation. |
+| `som-known-mobile-of` | Inverse of the encounter relation. |
+
+Contracts and verification are in the [mobile guide](../../../src/resources/som-component-library/mobile/README.md).
+Shared inputs `som-mobile-name` and `som-player` remain declared once in the
+level reading component.

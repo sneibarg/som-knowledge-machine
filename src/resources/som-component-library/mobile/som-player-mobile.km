@@ -1,0 +1,19 @@
+;; som-player-mobile.km
+;; One sequence of remembered mobiles on the player situation, in encounter order.
+;; This filename avoids colliding with Som-Mobile.km on Windows.
+
+(som-known-mobile has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (domain (Thing))
+  (range (Som-Mobile))
+  (inverse (som-known-mobile-of))
+  (original-slot (t))
+  (text-gloss ("includes the mobile encountered by this player")))
+
+(som-known-mobile-of has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("was encountered by")))

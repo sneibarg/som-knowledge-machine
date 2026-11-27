@@ -23,6 +23,7 @@ Conclusion driven development builds an inference chain that automation can foll
 | `area` | The explored area whose range contains the character's level. | `Som-Area.km`, `som-known-area.km`, `Som-Area-Choice.km` |
 | `command` | The known commands that serve a goal, and the exploration attempts hunt rules 10 and 12 send. | `Som-Known-Command.km`, `som-player-command.km`, `Som-Command-Choice.km` |
 | `route` | The exits to take from one explored room to another. | `Som-Explored-Room.km`, `Som-Room-Exit.km`, `som-explored-exit.km`, `som-player-room.km`, `Som-Route.km` |
+| `mobile` | Evidence-backed experience sources and a route to a selected last-known mobile location. | `Som-Mobile.km`, `som-player-mobile.km`, `Som-Mobile-Choice.km` |
 | `gear` | The facts a later gear conclusion will read, including the side stored from score. No rule reads these components yet. | `Som-Gear-Piece.km`, `Som-Gear-Report.km`, `Som-Weapon-Skill.km`, `Som-Gear-Goal.km`, `Som-Alignment.km` |
 | `practice` | The facts a later practice conclusion will read. No rule reads these components yet. | `Som-Learned-Ability.km`, `Som-Practice-State.km`, `Som-Gain-Offer.km`, `Som-Practice-Room.km` |
 | `personality` | The disposition and one bond. No rule reads these components yet. | `Som-Personality.km`, `Som-Social-Connection.km` |
@@ -38,3 +39,14 @@ The eleven components in `gear`, `practice`, and `personality` declare slots and
 
 The level chain is the chain automation follows today. The caller reads `som-licensed-directive` and sends the first attempt. The clock stays with the caller.
 
+## Remembered mobile chain
+
+The [mobile contract](../../../src/resources/som-component-library/mobile/README.md)
+defines player-owned encounter evidence and conclusions on `Som-Goal-View`.
+`som-known-mobile` belongs to the player situation. Mobile records reuse
+`som-mobile-name` and `som-player`; positive experience is qualified by the
+character level where it was observed. Sources -> reachable sources -> target
+-> last-known room -> route is an investigation chain. It reuses `Som-Route`,
+preserves door prerequisites, and supplies no attack directive. The consumer
+must observe the room again before using existing consider/engage rules.
+New evidence, map, or goal requires a new view. No truth maintenance is claimed.

@@ -1,6 +1,6 @@
 # Vocabulary
 
-Twenty-one classes subclass `Thing`. `Som-Agentic-Player` subclasses `Situation`. Eight relations are `N-to-1` slots whose inverse is declared beside them. The slots this library declares are `*Fluent`. A conclusion is written in one `(every ... has ...)` so two files do not store two values on the same slot. Eleven classes are skeletons. Their slots are declared, and no rule reads them.
+Twenty-two classes subclass `Thing`. `Som-Agentic-Player` subclasses `Situation`. Ten relations are `N-to-1` slots whose inverse is declared beside them. The slots this library declares are `*Fluent`. A conclusion is written in one `(every ... has ...)` so two files do not store two values on the same slot. Eleven classes are skeletons. Their slots are declared, and no rule reads them.
 
 This note is the caller-facing list. Every declared frame, including the helper conclusions and every `*-rule` slot, is in [Objects](objects.md).
 
@@ -175,3 +175,18 @@ These classes subclass `Thing`. The caller may assert them. No conclusion reads 
 | `Som-Gain-Offer` | `som-offer-name`, `som-offer-kind`, `som-offer-cost` |
 | `Som-Practice-Room` | `som-room-name`, `som-practice-mark`, `som-gain-mark` |
 | `Som-Alignment` | `som-alignment-word`, `som-alignment-integer`, `som-alignment-side` |
+
+## Remembered mobiles
+
+`Som-Mobile` is one encounter record in the player's situation. Its caller inputs
+are `som-mobile-name` (shared with readings), `som-player` (`f` for an identified
+nonplayer), `som-mobile-experience`, `som-mobile-experience-level` (character
+level), and `som-mobile-last-room`. `som-known-mobile` is one ordered sequence
+on the player situation; replace it with `now-has` when the index changes.
+
+The view accepts `som-mobile-search-from`, an explored room. Its public
+conclusions are `som-mobile-search-status`, `som-experience-mobile`,
+`som-mobile-needs-evidence`, `som-reachable-mobile`, `som-mobile-target`,
+`som-mobile-destination`, and `som-mobile-route`. All added slots are fluent.
+The [package guide](../../../src/resources/som-component-library/mobile/README.md)
+defines their contracts and examples.

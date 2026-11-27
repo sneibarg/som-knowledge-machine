@@ -177,7 +177,8 @@
            "Som-Personality" "Som-Practice-Room" "Som-Practice-State"
            "Som-Social-Connection" "Som-Weapon-Skill" "som-known-area"
            "som-player-command" "Som-Explored-Room" "Som-Room-Exit"
-           "Som-Route" "som-explored-exit" "som-player-room"}
+           "Som-Route" "som-explored-exit" "som-player-room"
+           "Som-Mobile" "Som-Mobile-Choice" "som-player-mobile"}
          (set (utils/elements (:value loaded)))))
   (value-is (on loaded "(the superclasses of Som-Agentic-Player)") "(Situation)")
   (value-is (on loaded "(the superclasses of Som-Level-Goal)") "(Thing)")
@@ -254,7 +255,7 @@
   (let [files (->> (io/file agent-dir)
                    file-seq
                    (filter #(and (.isFile %) (str/ends-with? (.getName %) ".km"))))]
-    (is (= 32 (count files)))
+    (is (= 35 (count files)))
     (doseq [file files
             :let [text (slurp file)]]
       (is (not (str/includes? text "anonymous-instancep")) (.getName file))

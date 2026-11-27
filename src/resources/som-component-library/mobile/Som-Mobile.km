@@ -1,0 +1,33 @@
+;; Som-Mobile.km
+;; One remembered encounter, owned by the current player situation.
+;; Name and player classification reuse the level reading vocabulary.
+
+(Som-Mobile has (superclasses (Thing)))
+
+(som-mobile-experience has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("experience observed from this mobile at the recorded character level")))
+
+(som-mobile-experience-level has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the character level at which the experience was observed")))
+
+(som-mobile-last-room has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (domain (Thing))
+  (range (Som-Explored-Room))
+  (inverse (som-mobile-last-room-of))
+  (original-slot (t))
+  (text-gloss ("the last explored room where this mobile was observed")))
+
+(som-mobile-last-room-of has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("was the last observed room of")))

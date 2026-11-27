@@ -146,3 +146,21 @@ The choice does not read pace, the notch, or `som-areas-known`. It does not lice
 An exit back to the room already being searched is skipped. An exit whose far room is not on the situation's `som-explored-room` seq is skipped. An exit with no `som-exit-to` is not a step. The same room at both ends is `(:seq)`, and the walk does not run. No connection leaves `som-route-exits` empty.
 
 `som-requires-open` and `som-requires-unlock` stay on the exit. The seq does not insert `open` or `unlock`. After the exits change, the caller asks with a new `Som-Route`. Replacing the room's exit seq uses `now-has`.
+
+## Remembered mobile experience sources
+
+The level view first establishes `som-mobile-search-status`. Only an active,
+complete, non-stale level goal supports the search. `som-experience-mobile`
+filters `som-known-mobile` on the current player situation to named, explicitly
+classified nonplayers with positive experience observed at the current character
+level. `som-mobile-needs-evidence` identifies missing or level-mismatched
+observations; zero gain is not an unknown result.
+
+`som-reachable-mobile` uses the player's explored map and `Som-Route` from
+`som-mobile-search-from` to each source's last-known room. `som-mobile-target`
+keeps the greatest observed gain; a tie keeps encounter order. This ranks past
+yield, not safety, gain per minute, or availability. `som-mobile-destination`
+and `som-mobile-route` identify where to look and the exits to get there.
+Same-room routes are an empty sequence. An absent path is a different outcome.
+The [package guide](../../../src/resources/som-component-library/mobile/README.md)
+documents contexts, absence, validity, and acceptance examples.

@@ -12,11 +12,28 @@
 ;; som-requires-open and som-requires-unlock stay on the exit. This
 ;; conclusion does not add a command for either flag.
 ;;
-;; The two conclusion slots are not cached. After the exits change,
-;; the caller asks with a new route.
+;; Each root request scopes its recursive requests by its own frame identity.
+;; This keeps child caches from an older map or another request out of this
+;; search. After the exits change, the caller asks with a new root route.
 
 (Som-Route has
   (superclasses (Thing)))
+
+(som-route-context-in has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the root request supplied to a recursive route")))
+(som-route-context has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the root route request that owns this search")))
+(som-route-context-rule has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the rule for som-route-context")))
 
 (som-route-from has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the explored room the route starts from")))
 (som-route-to has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the explored room the route reaches")))
@@ -36,63 +53,95 @@
 (som-route-exits-rule has (instance-of (Slot)) (cardinality (N-to-1)) (fluent-status (*Fluent)) (text-gloss ("the rule for som-route-exits")))
 
 (every Som-Route has
+  (som-route-context ((the som-route-context-rule of Self)))
+  (som-route-context-rule
+    ((if (has-value (the som-route-context-in of Self))
+         then (the som-route-context-in of Self)
+         else Self)))
   (som-route-found ((the som-route-found-rule of Self)))
   (som-route-exits ((the som-route-exits-rule of Self)))
 
   (som-route-found-rule
     ((if ((has-value (the som-route-from of Self))
           and
-          (has-value (the som-route-to of Self))
+           (has-value (the som-route-to of Self))
           and
-          (not ((the som-route-from of Self) = (the som-route-to of Self)))
+           (not ((the som-route-from of Self) = (the som-route-to of Self)))
           and
-          (has-value (the som-room-exit of (the som-route-from of Self)))
+           (has-value (the som-room-exit of (the som-route-from of Self)))
           and
-          (not ((the som-room-exit of (the som-route-from of Self)) = (:seq)))
+           (not ((the som-room-exit of (the som-route-from of Self)) = (:seq)))
           and
-          (has-value (the som-explored-room of (curr-situation)))
+           (has-value (the som-explored-room of (curr-situation)))
           and
-          (not ((the som-explored-room of (curr-situation)) = (:seq))))
+           (not ((the som-explored-room of (curr-situation)) = (:seq))))
          then (forall-seq ?e in (the som-room-exit of (the som-route-from of Self))
-                          where ((has-value (the som-exit-to of ?e))
-                                 and
-                                 (not ((the som-exit-to of ?e)
-                                       = (the som-route-from of Self)))
-                                 and
-                                 ((the seq-length of
-                                   (forall-seq ?r in (the som-explored-room of (curr-situation))
-                                               where (?r = (the som-exit-to of ?e))
-                                               ?r))
-                                  > 0)
-                                 and
-                                 (((the som-exit-to of ?e) = (the som-route-to of Self))
-                                  or
-                                  ((has-value (the som-route-found of
-                                               (the+ Som-Route with
+                where ((has-value (the som-exit-to of ?e))
+                       and
+                        (not ((the som-exit-to of ?e)
+                               = (the som-route-from of Self)))
+                       and
+                        ((the seq-length of
+                           (forall-seq ?r in (the som-explored-room of (curr-situation))
+                             where (?r = (the som-exit-to of ?e))
+                             ?r))
+                          > 0)
+                       and
+                        (((the som-exit-to of ?e) = (the som-route-to of Self))
+                         or
+                          ((has-value (the som-route-found of
+                                        (if (has-value (every Som-Route with
+                                                         (som-route-from ((the som-exit-to of ?e)))
+                                                         (som-route-to ((the som-route-to of Self)))
+                                                         (som-route-context ((the som-route-context of Self)))))
+                                            then (the1 of (every Som-Route with
+                                                            (som-route-from ((the som-exit-to of ?e)))
+                                                            (som-route-to ((the som-route-to of Self)))
+                                                            (som-route-context ((the som-route-context of Self)))))
+                                            else (a Som-Route with
+                                                   (som-route-from ((the som-exit-to of ?e)))
+                                                   (som-route-to ((the som-route-to of Self)))
+                                                   (som-route-context-in ((the som-route-context of Self)))))))
+                           and
+                            (not ((the som-route-found of
+                                    (if (has-value (every Som-Route with
+                                                     (som-route-from ((the som-exit-to of ?e)))
+                                                     (som-route-to ((the som-route-to of Self)))
+                                                     (som-route-context ((the som-route-context of Self)))))
+                                        then (the1 of (every Som-Route with
+                                                        (som-route-from ((the som-exit-to of ?e)))
+                                                        (som-route-to ((the som-route-to of Self)))
+                                                        (som-route-context ((the som-route-context of Self)))))
+                                        else (a Som-Route with
+                                               (som-route-from ((the som-exit-to of ?e)))
+                                               (som-route-to ((the som-route-to of Self)))
+                                               (som-route-context-in ((the som-route-context of Self))))))
+                                   = (:seq))))))
+                (if ((the som-exit-to of ?e) = (the som-route-to of Self))
+                    then (:seq ?e)
+                    else ((:seq ?e) append
+                           (the1 of (the som-route-found of
+                                      (if (has-value (every Som-Route with
+                                                       (som-route-from ((the som-exit-to of ?e)))
+                                                       (som-route-to ((the som-route-to of Self)))
+                                                       (som-route-context ((the som-route-context of Self)))))
+                                          then (the1 of (every Som-Route with
+                                                          (som-route-from ((the som-exit-to of ?e)))
+                                                          (som-route-to ((the som-route-to of Self)))
+                                                          (som-route-context ((the som-route-context of Self)))))
+                                          else (a Som-Route with
                                                  (som-route-from ((the som-exit-to of ?e)))
-                                                 (som-route-to ((the som-route-to of Self))))))
-                                   and
-                                   (not ((the som-route-found of
-                                          (the+ Som-Route with
-                                            (som-route-from ((the som-exit-to of ?e)))
-                                            (som-route-to ((the som-route-to of Self)))))
-                                         = (:seq))))))
-                          (if ((the som-exit-to of ?e) = (the som-route-to of Self))
-                              then (:seq ?e)
-                              else ((:seq ?e) append
-                                    (the1 of (the som-route-found of
-                                              (the+ Som-Route with
-                                                (som-route-from ((the som-exit-to of ?e)))
-                                                (som-route-to ((the som-route-to of Self))))))))))))
+                                                 (som-route-to ((the som-route-to of Self)))
+                                                 (som-route-context-in ((the som-route-context of Self)))))))))))))
 
   (som-route-exits-rule
     ((if ((has-value (the som-route-from of Self))
           and
-          (has-value (the som-route-to of Self))
+           (has-value (the som-route-to of Self))
           and
-          ((the som-route-from of Self) = (the som-route-to of Self)))
+           ((the som-route-from of Self) = (the som-route-to of Self)))
          then (:seq)
          else (if ((has-value (the som-route-found of Self))
                    and
-                   (not ((the som-route-found of Self) = (:seq))))
+                    (not ((the som-route-found of Self) = (:seq))))
                   then (the1 of (the som-route-found of Self)))))))

@@ -1,0 +1,209 @@
+;; Som-Mobile-Choice.km
+;; Finding evidence-backed experience sources does not license an attack.
+;; Reuse the route chain; never turn a remembered sighting into current presence.
+;; Ask with a new view after evidence, goals, or room exits change.
+
+(som-mobile-search-from has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the explored room this mobile search starts from")))
+
+(som-mobile-search-status has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("whether this view supports a search for level experience")))
+(som-mobile-search-status-rule has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the rule for som-mobile-search-status")))
+
+(som-experience-mobile has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("remembered nonplayers with positive experience evidence at the current level")))
+(som-experience-mobile-rule has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the rule for som-experience-mobile")))
+
+(som-mobile-needs-evidence has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("remembered mobiles needing classification, experience, or location evidence")))
+(som-mobile-needs-evidence-rule has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the rule for som-mobile-needs-evidence")))
+
+(som-reachable-mobile has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("experience sources with a route to their last known room")))
+(som-reachable-mobile-rule has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the rule for som-reachable-mobile")))
+
+(som-mobile-target has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the reachable experience source with the greatest observed yield, keeping encounter order on ties")))
+(som-mobile-target-rule has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the rule for som-mobile-target")))
+
+(som-mobile-destination has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the last known room of the selected mobile")))
+(som-mobile-destination-rule has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the rule for som-mobile-destination")))
+
+(som-mobile-route has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the listed exits to the selected last known room")))
+(som-mobile-route-rule has
+  (instance-of (Slot))
+  (cardinality (N-to-1))
+  (fluent-status (*Fluent))
+  (text-gloss ("the rule for som-mobile-route")))
+
+(every Som-Goal-View has
+  (som-mobile-search-status ((the som-mobile-search-status-rule of Self)))
+  (som-experience-mobile ((the som-experience-mobile-rule of Self)))
+  (som-mobile-needs-evidence ((the som-mobile-needs-evidence-rule of Self)))
+  (som-reachable-mobile ((the som-reachable-mobile-rule of Self)))
+  (som-mobile-target ((the som-mobile-target-rule of Self)))
+  (som-mobile-destination ((the som-mobile-destination-rule of Self)))
+  (som-mobile-route ((the som-mobile-route-rule of Self)))
+
+  (som-mobile-search-status-rule
+    ((if (not (has-value (the som-goal of Self)))
+         then needs-goal
+         else (if (not ((the som-kind of (the som-goal of Self)) = level))
+                  then unsupported-goal
+                  else (if (not (has-value (the som-progress of Self)))
+                           then needs-progress
+                           else (if (not ((has-value (the som-level of (the som-progress of Self)))
+                                          and
+                                           (has-value (the som-target-level of (the som-goal of Self)))
+                                          and
+                                           (has-value (the som-clock-kind of (the som-progress of Self)))
+                                          and
+                                           (has-value (the som-clock-target of (the som-progress of Self)))))
+                                    then incomplete
+                                    else (if ((the som-clock-stale of Self) = t)
+                                             then stale
+                                             else (if ((the som-met of Self) = t)
+                                                      then met
+                                                      else ready))))))))
+
+  (som-experience-mobile-rule
+    ((if ((the som-mobile-search-status of Self) = ready)
+         then (if ((has-value (the som-known-mobile of (curr-situation)))
+                   and
+                    (not ((the som-known-mobile of (curr-situation)) = (:seq))))
+                  then (forall-seq ?m in (the som-known-mobile of (curr-situation))
+                         where ((has-value (the som-mobile-name of ?m))
+                                and
+                                 ((the som-player of ?m) = f)
+                                and
+                                 (has-value (the som-mobile-experience of ?m))
+                                and
+                                 ((the som-mobile-experience of ?m) > 0)
+                                and
+                                 (has-value (the som-mobile-experience-level of ?m))
+                                and
+                                 ((the som-mobile-experience-level of ?m) = (the som-level of (the som-progress of Self))))
+                         ?m)
+                  else (:seq))
+         else nil)))
+
+  (som-mobile-needs-evidence-rule
+    ((if ((the som-mobile-search-status of Self) = ready)
+         then (if ((has-value (the som-known-mobile of (curr-situation)))
+                   and
+                    (not ((the som-known-mobile of (curr-situation)) = (:seq))))
+                  then (forall-seq ?m in (the som-known-mobile of (curr-situation))
+                         where ((not ((the som-player of ?m) = t))
+                                and
+                                 ((not (has-value (the som-mobile-name of ?m)))
+                                  or
+                                   (not (has-value (the som-player of ?m)))
+                                  or
+                                   (not (has-value (the som-mobile-experience of ?m)))
+                                  or
+                                   (not (has-value (the som-mobile-experience-level of ?m)))
+                                  or
+                                   ((the som-mobile-experience-level of ?m) /= (the som-level of (the som-progress of Self)))
+                                  or
+                                   (not (has-value (the som-mobile-last-room of ?m)))))
+                         ?m)
+                  else (:seq))
+         else nil)))
+
+  (som-reachable-mobile-rule
+    ((if (((the som-mobile-search-status of Self) = ready)
+          and
+           (has-value (the som-mobile-search-from of Self))
+          and
+           ((has-value (the som-explored-room of (curr-situation)))
+            and
+             (not ((the som-explored-room of (curr-situation)) = (:seq))))
+          and
+           ((the seq-length of (forall-seq ?room in (the som-explored-room of (curr-situation))
+                                 where (?room = (the som-mobile-search-from of Self))
+                                 ?room)) > 0))
+         then (if ((has-value (the som-experience-mobile of Self))
+                   and
+                    (not ((the som-experience-mobile of Self) = (:seq))))
+                  then (forall-seq ?m in (the som-experience-mobile of Self)
+                         where ((has-value (the som-mobile-last-room of ?m))
+                                and
+                                 ((the seq-length of (forall-seq ?room in (the som-explored-room of (curr-situation))
+                                                       where (?room = (the som-mobile-last-room of ?m))
+                                                       ?room)) > 0)
+                                and
+                                 (has-value (the som-route-exits of (a Som-Route with (som-route-from ((the som-mobile-search-from of Self))) (som-route-to ((the som-mobile-last-room of ?m)))))))
+                         ?m)
+                  else (:seq))
+         else nil)))
+
+  (som-mobile-target-rule
+    ((if ((has-value (the som-reachable-mobile of Self))
+          and
+           (not ((the som-reachable-mobile of Self) = (:seq))))
+         then (the1 of (forall-seq ?m in (the som-reachable-mobile of Self)
+                         where ((the seq-length of (forall-seq ?other in (the som-reachable-mobile of Self)
+                                                     where ((the som-mobile-experience of ?other) > (the som-mobile-experience of ?m))
+                                                     ?other)) = 0)
+                         ?m))
+         else nil)))
+
+  (som-mobile-destination-rule
+    ((if (has-value (the som-mobile-target of Self))
+         then (the som-mobile-last-room of (the som-mobile-target of Self))
+         else nil)))
+
+  (som-mobile-route-rule
+    ((if (has-value (the som-mobile-destination of Self))
+         then (the som-route-exits of (a Som-Route with (som-route-from ((the som-mobile-search-from of Self))) (som-route-to ((the som-mobile-destination of Self)))))
+         else nil))))

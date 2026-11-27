@@ -148,8 +148,8 @@ loop carrying every output into the next event.
 
 ## Required inputs and coverage still absent
 
-The tests load the 32 `.km` files under `src/resources/som-component-library`,
-including its eight inference-chain folders, and the shipped core `Goal.km`.
+The tests load the 35 `.km` files under `src/resources/som-component-library`,
+including its nine inference-chain folders, and the shipped core `Goal.km`.
 The library composition checks assert the vocabulary, inverses, fluent slots,
 and independence from the core Goal/Event model. The gear, practice, and
 personality classes are skeletons; declaring them does not establish goal behavior.
@@ -172,3 +172,31 @@ Add supported, absent, uncertain, and conflicting examples; test changed evidenc
 and constraints; verify selection and observation after execution where execution
 is in scope. Record remaining gaps explicitly rather than treating a licensed
 attempt as proof of the desired outcome.
+
+## Remembered mobile conclusions
+
+`som/km/mobile_goal_test.clj` (`som.km.mobile-goal-test`) tests the
+[mobile conclusion contracts](../../src/resources/som-component-library/mobile/README.md)
+from intention through encounter evidence, experience sources, reachable
+locations, target selection, and routes. Run
+`clojure -M:test -n som.km.mobile-goal-test`.
+
+| Named test | Contract and limit |
+| --- | --- |
+| `mobile-vocabulary-loads-with-fluent-player-owned-relations` | Loader, fluent declarations, and inverse relations. |
+| `positive-experience-requires-an-identified-nonplayer-and-current-level-evidence` | Positive evidence, zero/negative results, players, unknown classification, and mismatched level. |
+| `missing-evidence-is-an-investigation-question` | Unmeasured, outdated, unclassified, and unlocated records remain distinct from negative observations. |
+| `target-selection-ranks-reachable-yields-and-keeps-encounter-order-on-ties` | Reachability, yield ranking, stable ties, and door prerequisites. |
+| `an-empty-route-is-a-supported-arrival-and-not-a-missing-path` | Same-room empty path is a supported result. |
+| `a-last-room-outside-the-explored-map-is-not-reachable` | Evidence of gain does not establish a known route. |
+| `no-records-and-no-route-context-have-different-results` | Empty evidence set versus missing search context. |
+| `inactive-or-incomplete-level-goals-do-not-select-mobiles` | Met, stale, wrong-kind, missing, and incomplete intention/context. |
+| `a-new-level-needs-new-experience-evidence` | Level change invalidates past experience evidence for selection. |
+| `a-new-view-reconsiders-replaced-evidence-and-a-changed-map` | Reconciliation with now-has and a fresh view, including the same route endpoints. |
+| `a-new-view-reconsiders-an-intermediate-route-change` | Cached child routes also reconsider changed exits. |
+| `players-keep-their-mobile-evidence-and-conclusions-separate` | Shared frame names with independent player assertions and answers. |
+| `prompt-and-http-query-the-same-mobile-conclusion` | Both adapters expose the same inference through evaluate. |
+
+The selected target is a last-known source to investigate, not permission to
+attack. Tests do not execute movement/combat or prove a measured future gain.
+The caller supplies fresh observations and reconsideration after action.

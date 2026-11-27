@@ -37,6 +37,9 @@ The original source is one concatenated Lisp file, `src/knowledge-machine/km-2-5
 
 ## Maintenance
 
+- [Mobile experience sources](mobile-experience-sources.md): player-owned mobile
+  encounters and conclusions for finding last-known experience sources.
+
 - [Test organization](test-organization.md): component-library, inference-engine,
   and agent-goal suites with documented conclusion contracts.
 

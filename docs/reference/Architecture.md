@@ -169,3 +169,21 @@ The full notice ships at `META-INF/som-knowledge-machine/LICENSE`. The current
 ## What the Lisp modules become
 
 The concatenated Lisp file is marked with `;;; FILE:` headers. `src/knowledge-machine/disassemble` is the Perl unpacker taken from that file. Running it writes one source file per header into `src/knowledge-machine/packages/`. Each of those files, except `README.txt`, begins with the `km` package forms the script inserts. How those files fit together is recorded in `src/knowledge-machine/packages/Architecture.md`. The runtime flags, frame layout, and reader macros are recorded in `src/knowledge-machine/packages/Conventions.md`. The port follows those modules in the order listed in `docs/migration/README.md`. Why that order differs from the Lisp load order, and where Clojure will not produce the same result, is recorded in `docs/migration/plan.md`. `compiled-handlers.lisp` stays unported. It is a generated flattening of the same interpreter. `htextify.lisp` is a stub.
+
+## Mobile component package
+
+`src/resources/som-component-library/mobile` adds player-situation encounter
+memory and level-view conclusions for finding evidenced experience sources.
+It reuses the level goal/clock vocabulary and the existing route chain, and
+leaves fresh-room hunt policy in the level components. All added slots are
+fluent; the caller replaces observations and uses a new view after changes.
+The [mobile contract](../../src/resources/som-component-library/mobile/README.md)
+documents evidence, selection, absence, context, and execution boundaries.
+The package loads through the existing `(load-lib)` and `engine/evaluate`, so
+prompt, HTTP, configured loading, and packaged resources use the same rules.
+No interpreter function, adapter API, or state representation changes.
+
+Recursive Som route requests carry `som-route-context`, the root request frame.
+Each mobile route query creates a fresh root, so child caches are reused within
+that request and isolated from earlier requests or maps. A new view after a map
+edit therefore recomputes the path, including intermediate rooms.
