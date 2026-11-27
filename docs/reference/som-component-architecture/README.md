@@ -10,6 +10,8 @@ The caller owns the clock. Each query is one score, one death, or one view. The 
 
 ## Conclusion driven development
 
+The general architecture is described in [Conclusion Driven Development](../ConclusionDrivenDevelopment.md). This section describes its application to this component library.
+
 Conclusion driven development builds an inference chain that automation can follow. The caller asserts the facts. A rule reads those facts and writes a conclusion. Automation reads the conclusion and acts. The component that writes the conclusion sits with the components that supply its facts.
 
 `(load-lib)` walks this library recursively. The load path remains `src/resources/som-component-library`. Each folder below is one chain. A folder name differs from every component pathname-name, because a file `Name.km` is probed as the directory `Name/`.
@@ -35,3 +37,4 @@ A later chain reads a conclusion an earlier chain wrote.
 The eleven components in `gear`, `practice`, and `personality` declare slots and have no rules. A later conclusion for one of those chains is a rule in that folder, beside the facts it reads.
 
 The level chain is the chain automation follows today. The caller reads `som-licensed-directive` and sends the first attempt. The clock stays with the caller.
+
