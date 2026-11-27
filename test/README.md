@@ -9,7 +9,7 @@ All suites use `clojure.test` and the Cognitect test runner.
 | [inference-engine](inference-engine/README.md) | KM language and inference semantics, engine support functions, and prompt/HTTP translations. | `clojure -M:test -d test/inference-engine` |
 | [agent-goals](agent-goals/README.md) | Application intentions, evidence-supported conclusions, and the directives they license. | `clojure -M:test -d test/agent-goals` |
 
-Run everything with `clojure -M:test`. The runner searches `test` recursively;
+Run all enabled tests with `clojure -M:test`. The runner searches `test` recursively;
 `deps.edn` puts each group on the test classpath. Namespaces retain their existing
 names, so commands such as `clojure -M:test -n som.km.engine-test` still work.
 Keep a namespace in only one group. New test paths within a group must match
@@ -20,7 +20,8 @@ stack is engine behavior; an agent's desired level and choice of a command are
 application behavior. An engine regression may use a component file as a fixture
 without becoming a component-library acceptance test.
 
-The component suite loads the shipped library and can take several minutes and
-substantial heap. Use `clojure -J-Xmx4g -M:test` if the default heap is insufficient.
+The full shipped KM library load test is disabled because of its runtime.
+Traversal and focused library-loading tests remain enabled; see the
+[component test guide](component-libraries/README.md) for details.
 The startup and agent suites load `src/resources/som-component-library`.
 The agent README records the current conclusion contracts and their limits.

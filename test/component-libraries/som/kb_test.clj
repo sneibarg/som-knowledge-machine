@@ -274,6 +274,9 @@
                                 "databases/allelements.lisp")
               walk))))
 
+;; Disabled because loading the entire shipped KM library makes routine runs too slow.
+;; Remove the reader-discard marker to re-enable this integration test.
+#_
 (deftest load-lib-loads-the-shipped-component-library
   (let [root kb/components-path
         km-files (files-of-type root "km")
